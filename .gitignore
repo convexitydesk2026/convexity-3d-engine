@@ -1,0 +1,25 @@
+# Security / Secrets
+estate_config.ini
+hide.estate_dev_key
+
+# Databases (Wealth Data)
+*.db
+*.sqlite
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Dynamic Outputs & Reports
+*.csv
+*.png
+*.pdf
+*.html
+*.txt
+*.docx
+
+# Folders to ignore
+Backups/
+Dashboard_Reports/
+IBKR_Reports/
+Options Journal Downloads/

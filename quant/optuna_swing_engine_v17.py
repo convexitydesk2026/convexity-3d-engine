@@ -1,0 +1,325 @@
+# ==============================================================================
+# File: C:/Users/donca/Desktop/Desktop HP Envy x360 al 22Abr24/Docs Manuel/IBKR_Options/quant/optuna_swing_engine_v17.py
+# Version: 17.0
+# Description:
+#   Vectorized Swing Trading Optuna Engine.
+#   v17 introduces the ORB (Opening Range Breakout) Tripwire. Instead of blindly 
+#   buying at a specific time, it establishes the Morning High over an orb_window 
+#   and executes a buy-stop only if the stock surges through that resistance.
+# ==============================================================================
+
+import os
+import re
+import configparser
+import optuna
+import pandas as pd
+import numpy as np
+from sqlalchemy import create_engine, text
+import datetime
+import logging
+
+PROJECT_DIR = r"C:\Users\donca\Desktop\Desktop HP Envy x360 al 22Abr24\Docs Manuel\IBKR_Options\quant"
+LOG_DIR = os.path.join(PROJECT_DIR, "Logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+DB_CONFIG_PATH = r"C:\ORB20\Scripts\Py_scripts\DB_upload_config.ini"
+OPTUNA_CONFIG_PATH = os.path.join(PROJECT_DIR, "optimizer_config_7_5x_ATR.ini")
+
+log_file = os.path.join(LOG_DIR, f"optuna_run_v17_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+                    handlers=[logging.FileHandler(log_file), logging.StreamHandler()])
+
+class VectorizedSwingEngine:
+    def __init__(self):
+        db_config = configparser.ConfigParser()
+        db_config.read(DB_CONFIG_PATH)
+        db_creds = db_config['database']
+        
+        self.db_url = f"postgresql+psycopg2://{db_creds['username']}:{db_creds['password']}@{db_creds['host']}:{db_creds['port']}/{db_creds['dbname']}"
+        self.optuna_url = f"postgresql+psycopg2://{db_creds['username']}:{db_creds['password']}@{db_creds['host']}:{db_creds['port']}/optuna_studies"
+        self.engine = create_engine(self.db_url)
+        
+        self.opt_config = configparser.ConfigParser()
+        self.opt_config.read(OPTUNA_CONFIG_PATH)
+        
+        self.start_date = self.opt_config.get('Fixed_Parameters', 'start_date')
+        self.end_date = self.opt_config.get('Fixed_Parameters', 'end_date')
+        self.start_aum = self.opt_config.getfloat('Fixed_Parameters', 'initial_aum')
+        self.min_open_price = self.opt_config.getfloat('Fixed_Parameters', 'min_open_price')
+        
+        self.use_regime_filter = self.opt_config.get('Fixed_Parameters', 'use_regime_filter').lower() == 'yes'
+        self.regime_sma_len = self.opt_config.getint('Fixed_Parameters', 'regime_sma')
+        
+        self.daily_dict = {} 
+        self.candidates_by_date = {}
+        self.minute_cache = {} 
+        self.trading_dates = []
+        self.spy_regime = {}
+
+    def load_data(self):
+        logging.info(f"Step 1: Fetching Market Regime (SPY {self.regime_sma_len}-SMA) Data...")
+        query_spy = f"""
+        SELECT trading_date, d_close as spy_close
+        FROM public.daily_ohlc_cache
+        WHERE symbol = 'SPY'
+        """
+        df_spy = pd.read_sql(query_spy, self.engine, parse_dates=['trading_date'])
+        if not df_spy.empty:
+            df_spy.sort_values('trading_date', inplace=True)
+            df_spy['date_str'] = df_spy['trading_date'].dt.strftime('%Y-%m-%d')
+            
+            df_spy['spy_sma'] = df_spy['spy_close'].rolling(self.regime_sma_len).mean()
+            df_spy['regime_pass'] = df_spy['spy_close'] > df_spy['spy_sma']
+            df_spy['regime_pass_prev'] = df_spy['regime_pass'].shift(1)
+            self.spy_regime = df_spy.set_index('date_str')['regime_pass_prev'].to_dict()
+
+        logging.info("Step 2: Fetching Daily Data from Materialized View...")
+        query_daily = f"""
+        SELECT trading_date, symbol, d_open, d_high, d_low, d_close
+        FROM public.daily_ohlc_cache
+        WHERE trading_date BETWEEN '{self.start_date}' AND '{self.end_date}'
+        """
+        df = pd.read_sql(query_daily, self.engine, parse_dates=['trading_date'])
+        
+        df = df[df['symbol'].str.isalpha()]
+        df.sort_values(['symbol', 'trading_date'], inplace=True)
+        
+        df['prev_close'] = df.groupby('symbol')['d_close'].shift(1)
+        df['tr1'] = df['d_high'] - df['d_low']
+        df['tr2'] = abs(df['d_high'] - df['prev_close'])
+        df['tr3'] = abs(df['d_low'] - df['prev_close'])
+        df['true_range'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
+        df['atr_14'] = df.groupby('symbol')['true_range'].transform(lambda x: x.rolling(14).mean())
+        
+        df['sma_10'] = df.groupby('symbol')['d_close'].transform(lambda x: x.rolling(10).mean())
+        df['sma_20'] = df.groupby('symbol')['d_close'].transform(lambda x: x.rolling(20).mean())
+        df['sma_50'] = df.groupby('symbol')['d_close'].transform(lambda x: x.rolling(50).mean())
+        
+        df['5d_high'] = df.groupby('symbol')['d_high'].transform(lambda x: x.rolling(5).max())
+        df['5d_low'] = df.groupby('symbol')['d_low'].transform(lambda x: x.rolling(5).min())
+        df['5d_range_pct'] = (df['5d_high'] - df['5d_low']) / df['5d_low']
+        
+        for col in ['d_close', 'atr_14', 'sma_10', 'sma_20', 'sma_50', '5d_range_pct']:
+            df[f'{col}_prev'] = df.groupby('symbol')[col].shift(1)
+            
+        df.dropna(subset=['sma_50_prev', 'atr_14_prev'], inplace=True) 
+        
+        # TC2000 Exact Match Filter
+        df['ratio'] = ((df['d_close_prev'] - df['sma_50_prev']) / df['sma_50_prev']) / (df['atr_14_prev'] / df['d_close_prev'])
+        df['vol_cond'] = (100 * (df['atr_14_prev'] / df['d_close_prev'])) > 0.5
+        df['deadzone_pass'] = df['5d_range_pct_prev'] >= 0.02
+        df['price_pass'] = df['d_close_prev'] >= self.min_open_price
+        
+        self.trading_dates = sorted(df['trading_date'].unique())
+        df_indexed = df.set_index(['trading_date', 'symbol'])
+        self.daily_dict = df_indexed.to_dict(orient='index')
+        
+        df_candidates = df[(df['ratio'] >= 4.0) & df['vol_cond'] & df['deadzone_pass'] & df['price_pass']].copy()
+        df_top_cands = df_candidates.sort_values(['trading_date', 'ratio'], ascending=[True, False]).groupby('trading_date').head(100)
+        
+        for d, g in df_top_cands.groupby('trading_date'):
+            self.candidates_by_date[d] = g.to_dict(orient='records')
+        
+        logging.info(f"Memory Optimization: Reduced to {len(df_top_cands)} hyper-targeted candidate days.")
+        logging.info("Fetching Entry 1-Min Bars for top 100 targets...")
+        df_top_cands[['trading_date', 'symbol']].to_sql('temp_optuna_candidates', self.engine, if_exists='replace', index=False)
+        
+        query_1min = """
+        SELECT s.trading_date, s.symbol,
+               s."timestamp" AT TIME ZONE 'America/New_York' AS time_et,
+               s.open, s.high, s.low, s.close
+        FROM public.stock_datum s
+        JOIN temp_optuna_candidates t ON s.trading_date = t.trading_date AND s.symbol = t.symbol
+        WHERE CAST(s."timestamp" AT TIME ZONE 'America/New_York' AS time) BETWEEN '09:30:00' AND '15:59:00'
+        ORDER BY s.trading_date, s.symbol, s."timestamp"
+        """
+        df_1min = pd.read_sql(query_1min, self.engine, parse_dates=['trading_date', 'time_et'])
+        df_1min['min_from_open'] = df_1min['time_et'].dt.hour * 60 + df_1min['time_et'].dt.minute - 570 
+        
+        for (date, sym), group in df_1min.groupby(['trading_date', 'symbol']):
+            self.minute_cache[(date, sym)] = group[['min_from_open', 'open', 'high', 'low', 'close']].values
+            
+        with self.engine.connect() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS temp_optuna_candidates;"))
+            conn.commit()
+            
+        logging.info("Data mapped to Pure Dictionaries perfectly. Engine ready for Optuna.")
+
+    def objective(self, trial):
+        params = {}
+        space = self.opt_config['Hyperparameter_Space']
+        
+        for key, value in space.items():
+            value_str = value.strip()
+            categorical_match = re.match(r'categorical\((.*?)\)', value_str)
+            if categorical_match:
+                params[key] = trial.suggest_categorical(key, [c.strip() for c in categorical_match.group(1).split(',')])
+                continue
+            parts = [p.strip() for p in value_str.split(',')]
+            if all('.' not in p for p in parts):
+                p_int = [int(p) for p in parts]
+                params[key] = trial.suggest_int(key, p_int[0], p_int[1], step=p_int[2] if len(p_int) > 2 else 1)
+            else:
+                p_float = [float(p) for p in parts]
+                params[key] = trial.suggest_float(key, p_float[0], p_float[1], step=p_float[2] if len(p_float) > 2 else None)
+        
+        p_orb = int(params['orb_window'])
+        p_target = float(params['atr_target'])
+        p_r_mult = float(params['transition_r'])
+        p_sma = str(params['trailing_sma'])
+        p_max_positions = int(params['max_positions'])
+        p_atr_stop_mult = float(params['atr_stop_multiplier'])
+        p_risk_pct = float(params['risk_pct'])
+        
+        cash = self.start_aum
+        open_positions = {}
+        daily_nav_curve = []
+        
+        for date in self.trading_dates:
+            bod_nav = cash
+            for sym, pos in open_positions.items():
+                if (date, sym) in self.daily_dict:
+                    pos['last_known_price'] = self.daily_dict[(date, sym)]['d_close_prev']
+                bod_nav += pos['shares'] * pos['last_known_price']
+                
+            daily_nav_curve.append(bod_nav)
+            target_risk = bod_nav * p_risk_pct
+            max_capital_per_trade = bod_nav / p_max_positions
+            
+            closed_syms = []
+            for sym, pos in open_positions.items():
+                if (date, sym) not in self.daily_dict:
+                    cash += pos['shares'] * (pos['last_known_price'] - 0.005)
+                    closed_syms.append(sym)
+                    continue
+                
+                day_bar = self.daily_dict[(date, sym)]
+                d_O = day_bar['d_open']
+                d_H = day_bar['d_high']
+                d_L = day_bar['d_low']
+                sma_val = day_bar[p_sma]
+                
+                if pos['state'] == 'waiting_target':
+                    if d_O <= pos['active_stop']: 
+                        cash += pos['shares'] * (d_O - 0.005); closed_syms.append(sym)
+                    elif d_L <= pos['active_stop']: 
+                        cash += pos['shares'] * (pos['active_stop'] - 0.005); closed_syms.append(sym)
+                    elif d_H >= pos['target_price']: 
+                        pos['state'] = 'trailing'
+                        pos['active_stop'] = max(pos['entry_price'], sma_val) 
+                elif pos['state'] == 'trailing':
+                    pos['active_stop'] = max(pos['active_stop'], sma_val)
+                    if d_O <= pos['active_stop']: 
+                        cash += pos['shares'] * (d_O - 0.005); closed_syms.append(sym)
+                    elif d_L <= pos['active_stop']: 
+                        cash += pos['shares'] * (pos['active_stop'] - 0.005); closed_syms.append(sym)
+                        
+            for sym in closed_syms: del open_positions[sym]
+            
+            date_str = date.strftime('%Y-%m-%d')
+            is_bull_market = self.spy_regime.get(date_str, True)
+            if self.use_regime_filter and not is_bull_market:
+                continue 
+                
+            candidates = self.candidates_by_date.get(date, [])
+            for row in candidates:
+                if row['ratio'] < p_target: continue 
+                sym = row['symbol']
+                
+                if sym in open_positions: continue 
+                if len(open_positions) >= p_max_positions or cash < 100: break
+                if (date, sym) not in self.minute_cache: continue
+                
+                bars = self.minute_cache[(date, sym)]
+                
+                # --- V17 ORB LOGIC ---
+                orb_indices = np.where(bars[:, 0] <= p_orb)[0]
+                if len(orb_indices) == 0: continue
+                
+                last_orb_idx = orb_indices[-1]
+                if last_orb_idx >= len(bars) - 1: continue # No time left in the day
+                
+                # Identify the Morning High (Resistance)
+                orb_high = np.max(bars[:last_orb_idx+1, 2])
+                
+                breakout_idx = -1
+                entry_px = 0.0
+                
+                # Scan the rest of the day for a breakout trigger
+                for i in range(last_orb_idx + 1, len(bars)):
+                    if bars[i, 2] >= orb_high:
+                        breakout_idx = i
+                        entry_px = max(bars[i, 1], orb_high) # Account for slippage/gaps over the level
+                        break
+                        
+                if breakout_idx == -1: continue # The trade never triggered. We avoid the loss!
+                
+                risk_ps = row['atr_14_prev'] * p_atr_stop_mult
+                initial_stop = entry_px - risk_ps
+                if risk_ps <= 0 or initial_stop <= 0: continue 
+                
+                shares = np.floor(target_risk / risk_ps)
+                cost_per_share = entry_px + 0.005
+                desired_cost = shares * cost_per_share
+                
+                allowed_cash = min(cash, max_capital_per_trade)
+                if desired_cost > allowed_cash:
+                    shares = np.floor(allowed_cash / cost_per_share)
+                    
+                if shares <= 0: continue
+                
+                cash -= (shares * cost_per_share) 
+                target = entry_px + (p_r_mult * risk_ps)
+                
+                day1_exit = False
+                day1_target_hit = False
+                
+                for i in range(breakout_idx, len(bars)):
+                    if bars[i, 3] <= initial_stop:
+                        cash += shares * (min(initial_stop, bars[i, 1]) - 0.005)
+                        day1_exit = True
+                        break
+                    if bars[i, 2] >= target:
+                        day1_target_hit = True
+                        active_stop = max(entry_px, row[p_sma])
+                        for j in range(i+1, len(bars)):
+                            if bars[j, 3] <= active_stop:
+                                cash += shares * (min(active_stop, bars[j, 1]) - 0.005)
+                                day1_exit = True
+                                break
+                        break
+                        
+                if not day1_exit:
+                    open_positions[sym] = {
+                        'shares': shares, 'entry_price': entry_px, 
+                        'initial_stop': initial_stop, 
+                        'active_stop': max(entry_px, row[p_sma]) if day1_target_hit else initial_stop,
+                        'target_price': target, 
+                        'state': 'trailing' if day1_target_hit else 'waiting_target',
+                        'last_known_price': entry_px
+                    }
+        
+        equity_array = np.array(daily_nav_curve)
+        if len(equity_array) < 5: return -999.0
+            
+        peak_array = np.maximum.accumulate(equity_array)
+        drawdowns = (equity_array - peak_array) / peak_array
+        max_dd = abs(np.min(drawdowns))
+        if max_dd == 0: return 0.0
+            
+        years = len(self.trading_dates) / 252.0
+        cagr = (equity_array[-1] / self.start_aum) ** (1 / years) - 1.0
+        return cagr / max_dd
+
+if __name__ == "__main__":
+    engine = VectorizedSwingEngine()
+    study_name = engine.opt_config.get('Study', 'name')
+    n_trials = engine.opt_config.getint('Study', 'n_trials')
+    n_jobs = engine.opt_config.getint('Study', 'n_jobs')
+    
+    engine.load_data()
+    study = optuna.create_study(study_name=study_name, storage=engine.optuna_url, direction="maximize", load_if_exists=True)
+    
+    logging.info(f"Starting {n_jobs}-Threaded Optuna Sweep for Study: {study_name}...")
+    study.optimize(engine.objective, n_trials=n_trials, n_jobs=n_jobs)
+    logging.info(f"Best Calmar: {study.best_trial.value:.4f} | Params: {study.best_trial.params}")

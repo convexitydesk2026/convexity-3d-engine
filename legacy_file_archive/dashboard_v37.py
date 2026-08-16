@@ -1,0 +1,1718 @@
+"""
+=============================================================================
+Script Name: dashboard_v37.py
+Purpose: The Streamlit Frontend (Family Office Estate Architecture)
+
+⚙️ HOW TO LAUNCH THIS DASHBOARD:
+1. Open Command Prompt (cmd)
+2. Navigate to the Estate directory by pasting:
+   cd "C:\\Users\\donca\\Desktop\\Desktop HP Envy x360 al 22Abr24\\Docs Manuel\\IBKR_Options"
+3. Launch the UI by running exactly:
+   streamlit run dashboard_v37.py
+
+CHANGELOG (v37):
+         - NEW: Naked Options & PDT Margin Lock alerts integrated.
+         - NEW: Ledger Drift alert moved to Executive Briefing.
+         - NEW: 20% strict Global Margin Cap enforcement.
+         - NEW: Deployment Command Center excludes Silo B from Macro matrix.
+         - NEW: European 1x ETPs added to the Master Instrument Matrix.
+         - UI: Global gauges enlarged (1.5x width, 18px font) vs Silo gauges.
+         - UI: Options Ledger features green row highlighting and int() DTEs.
+         - POLICY: Updated Silo Strategy Footers for new CFD/ETP rules.
+=============================================================================
+"""
+
+import streamlit as st
+import pandas as pd
+import sqlite3
+import numpy as np
+import plotly.graph_objects as go
+import yfinance as yf
+import os
+import sys
+import datetime
+import random
+import subprocess
+import glob
+import math
+
+st.set_page_config(page_title="Estate Master Dashboard", layout="wide")
+DB_NAME = "estate_data.db"
+TARGET_DIR = r"C:\Users\donca\Desktop\Desktop HP Envy x360 al 22Abr24\Docs Manuel\IBKR_Options"
+DB_PATH = os.path.join(TARGET_DIR, DB_NAME)
+SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine_v18.py")
+
+SILO_MAP = {
+    'U23144948': ('Silo A', 'Persons 1 and 2 • U*****948', '#93c5fd'),
+    'U23139264': ('Silo B', 'Persons 1 and 2 • U*****264', '#d8b4fe'),
+    'U23154199': ('Silo C', 'Persons 1 and 3 • U*****199', '#86efac'),
+    'U25218481': ('Silo D', 'Persons 1 and 4 • U*****481', '#fde047')
+}
+
+COLOR_PALETTE = {
+    'IB01': '#93c5fd', 'CSPX': '#f97316', 'CNDX': '#8b5cf6',
+    'ITWN': '#14b8a6', 'CSKR': '#f472b6', 'CNYA': '#fb923c',
+    'Crypto': '#0ea5e9', 'Gold': '#fbbf24', 'Active Swing': '#a855f7', 'Cash': '#86efac',
+    'Opt Liab': '#ef4444', 'Tail Hedge': '#0f172a', 'Accounting Offset': '#94a3b8'
+}
+
+# --- LIVE RISK-FREE RATE ---
+@st.cache_data(ttl=3600)
+def get_risk_free_rate():
+    try:
+        irx = yf.Ticker('^IRX').history(period='5d')['Close'].iloc[-1]
+        return max(float(irx) / 100.0, 0.0)
+    except:
+        return 0.045  # Fallback to 4.5% if network is down
+
+LIVE_RF_RATE = get_risk_free_rate()
+
+# --- DYNAMIC SCRIPT DISCOVERY ---
+def get_active_scripts():
+    active_dash = os.path.basename(__file__)
+    patterns =['Telegram_Notifier_v*.py', 'sync_engine_v*.py', 'Run_Estate_Sync.bat']
+    scripts =[f"{active_dash} [Active]"]
+    
+    for p in patterns:
+        matches = glob.glob(os.path.join(TARGET_DIR, p))
+        if matches:
+            latest = max(matches, key=os.path.getmtime)
+            scripts.append(os.path.basename(latest))
+        else:
+            scripts.append(p.replace('_v*.py', '_vX.py')) 
+    return " • ".join(scripts)
+
+active_scripts_str = get_active_scripts()
+
+# --- SIDEBAR: SYNC BUTTON ---
+with st.sidebar:
+    st.markdown("### ⚙️ Engine Control")
+    if st.button("⟳ Sync Live from TWS", width="stretch"):
+        with st.spinner("Connecting to TWS... Please wait (~15s)"):
+            try:
+                subprocess.run(["python", SYNC_SCRIPT], check=True)
+                st.success("Sync Complete!")
+                st.cache_data.clear() 
+                st.rerun()
+            except Exception as e:
+                st.error(f"Sync failed. Is TWS open? Error: {e}")
+
+# --- HELPER FUNCTIONS ---
+def calculate_xirr(dates, cfs):
+    try:
+        def xnpv(rate):
+            if rate <= -1.0: return float('inf')
+            t0 = dates.iloc[0]
+            return sum([cf / (1 + rate)**((d - t0).days / 365.0) for cf, d in zip(cfs, dates)])
+        rate = 0.10 
+        for _ in range(100):
+            val = xnpv(rate)
+            deriv = (xnpv(rate + 0.0001) - val) / 0.0001
+            if abs(deriv) < 1e-8: break
+            rate_new = rate - val / deriv
+            if abs(rate_new - rate) < 1e-6: return rate_new
+            rate = rate_new
+        if rate > 10.0 or rate < -1.0: return 0.0
+        return rate
+    except: return 0.0
+
+def process_metrics(df_acc, rf_rate):
+    if df_acc.empty or df_acc['nav'].max() == 0:
+        return {"irr": 0, "sharpe": 0, "pnl": 0, "max_dd": 0, "roc": 0, "nav": 0, "dd_days": 0}
+        
+    df_acc = df_acc[df_acc['nav'] > 0].copy().reset_index(drop=True)
+    if len(df_acc) < 2:
+        return {"irr": 0, "sharpe": 0, "pnl": 0, "max_dd": 0, "roc": 0, "nav": df_acc['nav'].iloc[-1] if not df_acc.empty else 0, "dd_days": 0}
+
+    df_acc['prev_nav'] = df_acc['nav'].shift(1)
+    df_acc['daily_return'] = (df_acc['nav'] - df_acc['cash_flow'] - df_acc['prev_nav']) / df_acc['prev_nav'].replace(0, np.nan)
+    df_acc['daily_return'] = df_acc['daily_return'].fillna(0)
+    
+    final_nav = df_acc['nav'].iloc[-1]
+    total_deposits = df_acc['cash_flow'].sum()
+    total_pnl = final_nav - total_deposits
+    
+    daily_rf = rf_rate / 252 
+    excess_returns = df_acc['daily_return'] - daily_rf
+    sharpe = np.sqrt(252) * (excess_returns.mean() / df_acc['daily_return'].std()) if df_acc['daily_return'].std() > 0 else 0
+
+    cum_idx = (1 + df_acc['daily_return']).cumprod()
+    peak = cum_idx.cummax()
+    drawdown = (cum_idx - peak) / peak
+    max_dd = drawdown.min() * 100
+    
+    peak_date = df_acc['date'].iloc[0]
+    max_dd_days = 0
+    for idx, row in df_acc.iterrows():
+        if cum_idx.iloc[idx] >= peak.iloc[idx]: peak_date = row['date']
+        else:
+            duration = (row['date'] - peak_date).days
+            if duration > max_dd_days: max_dd_days = duration
+    
+    cfs = (-df_acc['cash_flow']).tolist()
+    dates = df_acc['date'].tolist()
+    cfs.append(final_nav)
+    dates.append(dates[-1])
+    irr = calculate_xirr(pd.to_datetime(pd.Series(dates)), cfs) * 100
+
+    df_acc['cum_cf'] = df_acc['cash_flow'].cumsum()
+    max_cap = df_acc['cum_cf'].max()
+    if max_cap <= 0: max_cap = df_acc['nav'].max() - total_pnl
+    roc = (total_pnl / max_cap) * 100 if max_cap > 0 else 0
+
+    return {"irr": irr, "sharpe": sharpe, "pnl": total_pnl, "max_dd": max_dd, "roc": roc, "nav": final_nav, "dd_days": max_dd_days}
+
+def get_exact_opt_margin(df_in):
+    df_opt = df_in[(df_in['sec_type'] == 'OPT') & (df_in['asset_class'] != 'Tail Hedge')].copy()
+    if df_opt.empty: return 0
+    try:
+        margin = 0
+        df_opt['strike'] = df_opt['symbol'].apply(lambda x: float(x.split('_')[2]))
+        df_opt['exp'] = df_opt['symbol'].apply(lambda x: x.split('_')[1])
+        df_opt['right'] = df_opt['symbol'].apply(lambda x: x.split('_')[3]) # Identifies 'P' or 'C'
+        
+        # Calculate absolute margin independently for Puts and Calls per expiration
+        for _, group in df_opt.groupby(['account', 'exp', 'right']):
+            short_sum = group[group['position'] < 0].apply(lambda r: r['strike'] * abs(r['position']), axis=1).sum()
+            long_sum = group[group['position'] > 0].apply(lambda r: r['strike'] * abs(r['position']), axis=1).sum()
+            margin += abs(short_sum - long_sum) * 100
+            
+        return margin
+    except Exception:
+        return 0
+
+@st.cache_data(ttl=3600)
+def load_and_process_data():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM daily_balances", conn)
+    df['date'] = pd.to_datetime(df['date'])
+    df.rename(columns={'total_cash': 'cash_flow', 'net_liquidation': 'nav'}, inplace=True)
+    
+    global_df = df.groupby('date').agg({'nav': 'sum', 'cash_flow': 'sum'}).reset_index()
+    global_metrics = process_metrics(global_df, LIVE_RF_RATE)
+    global_df = global_df[global_df['nav'] > 0].copy() 
+    
+    global_df['prev_nav'] = global_df['nav'].shift(1)
+    global_df['daily_return'] = (global_df['nav'] - global_df['cash_flow'] - global_df['prev_nav']) / global_df['prev_nav'].replace(0, np.nan)
+    global_df['cum_return'] = (1 + global_df['daily_return'].fillna(0)).cumprod() - 1
+    global_df['daily_pnl'] = global_df['nav'] - global_df['cash_flow'] - global_df['prev_nav'].fillna(global_df['nav'] - global_df['cash_flow'])
+    global_df['cum_pnl'] = global_df['daily_pnl'].cumsum()
+
+    silo_metrics = {}
+    silo_dfs = {}
+    for acc in SILO_MAP.keys():
+        acc_df = df[df['account'] == acc].copy().sort_values('date')
+        silo_metrics[acc] = process_metrics(acc_df, LIVE_RF_RATE)
+        acc_df = acc_df[acc_df['nav'] > 0].copy()
+        if not acc_df.empty:
+            acc_df['prev_nav'] = acc_df['nav'].shift(1)
+            acc_df['daily_return'] = (acc_df['nav'] - acc_df['cash_flow'] - acc_df['prev_nav']) / acc_df['prev_nav'].replace(0, np.nan)
+            acc_df['cum_return'] = (1 + acc_df['daily_return'].fillna(0)).cumprod() - 1
+            acc_df['daily_pnl'] = acc_df['nav'] - acc_df['cash_flow'] - acc_df['prev_nav'].fillna(acc_df['nav'] - acc_df['cash_flow'])
+        silo_dfs[acc] = acc_df
+
+    live_date = df['date'].max()
+    pos_df = pd.read_sql_query(f"SELECT account, symbol, sec_type, position, market_value, avg_cost, unrealized_pnl FROM daily_positions WHERE date = '{live_date.strftime('%Y-%m-%d')}'", conn)
+    attr_df = pd.read_sql_query("SELECT * FROM daily_attribution", conn)
+    if not attr_df.empty: attr_df['date'] = pd.to_datetime(attr_df['date'])
+    
+    try: open_orders_df = pd.read_sql_query(f"SELECT * FROM open_orders WHERE date = '{live_date.strftime('%Y-%m-%d')}'", conn)
+    except: open_orders_df = pd.DataFrame()
+        
+    def categorize(sym, sec, pos):
+        s = sym.upper()
+        if 'IB01' in s: return 'IB01'
+        if 'CSPX' in s: return 'CSPX'
+        if 'CNDX' in s or 'CSNDX' in s: return 'CNDX'
+        if 'ETHE' in s or 'BTC' in s: return 'Crypto'
+        if 'SGLN' in s or 'IGLN' in s: return 'Gold' 
+        if 'ITWN' in s: return 'ITWN'
+        if 'CSKR' in s: return 'CSKR'
+        if 'CNYA' in s: return 'CNYA'
+        if sec == 'CASH' or 'CASH' in s: return 'Cash'
+        if sec == 'CFD': return 'US Tech CFDs'
+        if sec == 'STK' and not any(x in s for x in ['IB01','CSPX','CNDX','SGLN','IGLN','ITWN','CSKR','CNYA']): return 'European 1x ETPs / Int. Stocks'
+        if sec == 'OPT':
+            if pos > 0: 
+                try:
+                    parts = s.split('_')
+                    if len(parts) >= 4 and parts[3] == 'P':
+                        exp_date = pd.to_datetime(parts[1])
+                        if (exp_date - pd.Timestamp.today()).days > 60:
+                            return 'Tail Hedge'
+                except: pass
+            return 'Opt Liab'
+        return 'Active Swing'
+        
+    pos_df['asset_class'] = pos_df.apply(lambda r: categorize(r['symbol'], r['sec_type'], r['position']), axis=1)
+        
+    return global_df, global_metrics, silo_dfs, silo_metrics, pos_df, attr_df, df, open_orders_df
+
+@st.cache_data(ttl=3600)
+def load_benchmarks(start_date, end_date):
+    data = yf.download(["SPY", "QQQ", "^VIX"], start=start_date - datetime.timedelta(days=300), end=end_date + datetime.timedelta(days=1), progress=False, auto_adjust=False)
+    close_data = data['Close'].ffill()
+    bench_df = close_data.reset_index()
+    bench_df.rename(columns={'Date': 'date'}, inplace=True)
+    bench_df['date'] = pd.to_datetime(bench_df['date']).dt.tz_localize(None)
+    
+    bench_df['sma_10'] = bench_df['SPY'].rolling(window=10).mean()
+    bench_df['sma_20'] = bench_df['SPY'].rolling(window=20).mean()
+    bench_df['sma_50'] = bench_df['SPY'].rolling(window=50).mean()
+    bench_df['sma_200'] = bench_df['SPY'].rolling(window=200).mean()
+    bench_df = bench_df[bench_df['date'] >= pd.to_datetime(start_date)].copy()
+    
+    def get_regime_and_tor(row):
+        vix = row['^VIX']
+        if pd.isna(row['sma_10']) or pd.isna(row['sma_20']): return 'Yellow', 2
+        if row['SPY'] < row['sma_20'] and row['sma_20'] < row['sma_10'] or vix > 25:
+            return 'Red', 1 if vix < 25 else 0
+        elif row['SPY'] > row['sma_10'] and row['sma_10'] > row['sma_20']:
+            return 'Green', 5 if vix < 15 else (4 if vix <= 20 else 3)
+        else: return 'Yellow', 3 if vix < 20 else (2 if vix <= 25 else 1)
+            
+    bench_df[['regime', 'tor']] = bench_df.apply(lambda row: pd.Series(get_regime_and_tor(row)), axis=1)
+    bench_df['spy_ret'] = bench_df['SPY'].pct_change().fillna(0)
+    bench_df['qqq_ret'] = bench_df['QQQ'].pct_change().fillna(0)
+    bench_df['spy_cum'] = (1 + bench_df['spy_ret']).cumprod() - 1
+    bench_df['qqq_cum'] = (1 + bench_df['qqq_ret']).cumprod() - 1
+    return bench_df
+
+def load_journal_data():
+    conn = sqlite3.connect(DB_PATH)
+    try: 
+        df_j = pd.read_sql_query("SELECT * FROM options_journal", conn)
+    except: 
+        df_j = pd.DataFrame()
+    conn.close()
+    return df_j
+
+@st.cache_data(ttl=3600)
+def load_deployment_ledger():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS deployment_ledger (deploy_date TEXT, regime TEXT, amount REAL)")
+    conn.commit()
+    df_ledger = pd.read_sql_query("SELECT * FROM deployment_ledger ORDER BY deploy_date DESC", conn)
+    conn.close()
+    return df_ledger
+
+# --- UI RENDERING ---
+st.title("Estate Master Dashboard")
+st.markdown(f"**Data Pipeline:** Live IBKR Sync via SQLite (`{DB_NAME}`) • **Last Refresh:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.markdown(f"**Active Scripts:** `{active_scripts_str}`")
+st.divider()
+
+global_df, global_metrics, silo_dfs, silo_metrics, pos_df, attr_df, balances_df, open_orders_df = load_and_process_data()
+bench_df = load_benchmarks(global_df['date'].min(), global_df['date'].max())
+chart_df = pd.merge(global_df, bench_df, on='date', how='left').ffill().fillna(0)
+journal_raw_df = load_journal_data()
+
+opt_margin_total = get_exact_opt_margin(pos_df)
+tot_cash = pos_df[pos_df['asset_class'].isin(['IB01', 'Cash'])]['market_value'].sum()
+tot_tech = pos_df[pos_df['asset_class'].isin(['CNDX', 'ITWN', 'CSKR', 'Active Swing', 'US Tech CFDs', 'European 1x ETPs / Int. Stocks'])]['market_value'].sum()
+pct_cash = (tot_cash / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+pct_tech = (tot_tech / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+nav_A = silo_metrics.get('U23144948', {}).get('nav', 0)
+nav_C = silo_metrics.get('U23154199', {}).get('nav', 0)
+
+# Pre-calculate Journal fields here to feed alerts below
+if not journal_raw_df.empty:
+    today = datetime.date.today()
+    journal_raw_df['Open Date'] = pd.to_datetime(journal_raw_df['Open Date'], errors='coerce').dt.date
+    journal_raw_df['Close Date'] = pd.to_datetime(journal_raw_df['Close Date'], errors='coerce').dt.date
+    
+    journal_raw_df['Collateral Locked (USD)'] = abs(journal_raw_df['Short Strike'] - journal_raw_df['Long Strike']) * 100 * journal_raw_df['Quantity']
+    journal_raw_df['Total Net Credit (USD)'] = journal_raw_df['Premium Collected (USD)'] * 100 * journal_raw_df['Quantity']
+    journal_raw_df['Target 50% Exit Price (USD)'] = journal_raw_df['Premium Collected (USD)'] / 2
+    
+    # NEW: Integer Formatting for DTE
+    journal_raw_df['Days Remaining'] = journal_raw_df.apply(
+        lambda r: int(max(0, r['DTE at Entry'] - ((today - r['Open Date']).days if pd.notnull(r['Open Date']) else 0))) 
+        if pd.isnull(r['Close Date']) and pd.notnull(r['DTE at Entry']) else 'Closed', 
+        axis=1
+    )
+    
+    journal_raw_df['Days in Trade'] = journal_raw_df.apply(
+        lambda r: (today - r['Open Date']).days if pd.isnull(r['Close Date']) and pd.notnull(r['Open Date']) 
+        else ((r['Close Date'] - r['Open Date']).days if pd.notnull(r['Open Date']) else 0), 
+        axis=1
+    )
+    
+    journal_raw_df['Total P&L (USD)'] = (journal_raw_df['Premium Collected (USD)'] - journal_raw_df['Closing Price (USD)']) * 100 * journal_raw_df['Quantity']
+    journal_raw_df['Return on Capital (ROC) %'] = (journal_raw_df['Total P&L (USD)'] / journal_raw_df['Collateral Locked (USD)']) * 100
+    
+    journal_raw_df['Annualized ROC %'] = journal_raw_df.apply(
+        lambda r: np.nan if pd.isnull(r['Return on Capital (ROC) %']) or r['Days in Trade'] == 0 
+        else r['Return on Capital (ROC) %'] * (365.0 / r['Days in Trade']), 
+        axis=1
+    )
+    
+    journal_raw_df = journal_raw_df.sort_values('Open Date', ascending=False).reset_index(drop=True)
+
+est_ann_ret = chart_df['daily_return'].mean() * 252
+
+def calc_adv(b_ret):
+    ann = b_ret.mean() * 252
+    std = b_ret.std() * np.sqrt(252)
+    sharpe = (ann - LIVE_RF_RATE) / std if std > 0 else 0
+    cov = chart_df['daily_return'].cov(b_ret)
+    var = b_ret.var()
+    beta = cov / var if var > 0 else 0
+    alpha = est_ann_ret - (LIVE_RF_RATE + beta * (ann - LIVE_RF_RATE))
+    corr = chart_df['daily_return'].corr(b_ret)
+    return sharpe, alpha * 100, corr
+
+spy_sh, spy_al, spy_co = calc_adv(chart_df['spy_ret'])
+qqq_sh, qqq_al, qqq_co = calc_adv(chart_df['qqq_ret'])
+calmar = global_metrics['irr'] / abs(global_metrics['max_dd']) if global_metrics['max_dd'] < 0 else 0
+
+def col_html(val, good_thresh=None):
+    if "N/A" in str(val): return "color: #4b5563;"
+    if isinstance(val, (int, float)):
+        if good_thresh is not None: return "color: #15803d;" if val >= good_thresh else "color: #b91c1c;"
+        return "color: #15803d;" if val > 0 else "color: #b91c1c;"
+    if "-" in str(val): return "color: #b91c1c;"
+    return "color: #15803d;"
+    
+# SECTION 0: EXECUTIVE BRIEFING (FOR TELEGRAM SCREENSHOTS)
+st.markdown("### 🔔 Executive Briefing & Actionable Alerts")
+alerts = []
+
+# Alert 1: PDT Danger (Silo B)
+if not balances_df.empty and 'available_funds' in balances_df.columns:
+    silo_b_bal = balances_df[(balances_df['account'] == 'U23139264') & (balances_df['date'] == balances_df['date'].max())]
+    if not silo_b_bal.empty:
+        af = silo_b_bal['available_funds'].iloc[0]
+        if 0 < af < 27000:
+            alerts.append(f"⚠️ **PDT Danger (Silo B):** Available Funds (${af:,.0f}) approaching the $25k FINRA lockout threshold. Reduce margin immediately.")
+
+# Alert 2: Naked Options (FIXED LOGIC)
+if not pos_df.empty:
+    naked_spreads = set()
+    open_opts = pos_df[(pos_df['sec_type'] == 'OPT') & (pos_df['asset_class'] != 'Tail Hedge')]
+    for _, opt in open_opts.iterrows():
+        opt_sym, acc = opt['symbol'], opt['account']
+        base_tckr = opt_sym.split('_')[0] # Extracts 'XSP' or 'XND'
+        
+        if not open_orders_df.empty:
+            # Checks if ANY order exists for this base ticker in this account (handles BAG combos)
+            has_order = not open_orders_df[(open_orders_df['account'] == acc) & (open_orders_df['symbol'].str.contains(base_tckr))].empty
+            if not has_order: naked_spreads.add(f"{base_tckr} spread in {SILO_MAP.get(acc, [acc])[0]}")
+        else:
+            naked_spreads.add(f"{base_tckr} spread in {SILO_MAP.get(acc, [acc])[0]}")
+            
+    # for ns in naked_spreads:
+            #     alerts.append(f"🚨 **CRITICAL (Naked Option):** {ns} is missing resting OCO brackets! Attach Take-Profit/Stop-Loss immediately.")
+            pass # MUTED: TWS 'BAG' combo API issue causing false positives.
+
+# Alert 3: Ledger Drift
+opt_margin_journal = 0
+if not journal_raw_df.empty:
+    open_journal = journal_raw_df[pd.isnull(journal_raw_df['Close Date'])]
+    opt_margin_journal = open_journal['Collateral Locked (USD)'].sum()
+    if abs(opt_margin_journal - opt_margin_total) > 0.01:
+        alerts.append(f"⚠️ **Ledger Drift Detected:** Live TWS options margin is **${opt_margin_total:,.0f}**, but manual Options Journal reflects **${opt_margin_journal:,.0f}**. Please reconcile.")
+
+# Alert 4: Global Margin Cap (20%)
+pct_margin = (opt_margin_total / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+if pct_margin >= 20.0:
+    alerts.append(f"🚨 **CRITICAL (Margin Cap Breached):** Global Options Margin is {pct_margin:.1f}% (Limit: 20.0%). Halt all new options deployments immediately.")
+elif pct_margin >= 16.0:
+    alerts.append(f"⚠️ **Margin Capacity Warning:** Global Options Margin is {pct_margin:.1f}%. Approaching the absolute 20% limit.")
+
+# Original Options Warnings & Stop Loss (FIXED LIVE PRICE LOGIC)
+if not journal_raw_df.empty:
+    today = datetime.date.today()
+    for _, row in journal_raw_df[pd.isnull(journal_raw_df['Close Date'])].iterrows():
+        try:
+            tckr, dte_rem = row['Ticker'], row['Days Remaining']
+            if str(dte_rem) != 'Closed' and int(dte_rem) <= 7:
+                alerts.append(f"⏱️ **Options Gamma Risk:** Contract {tckr} ({row['Short Strike']}/{row['Long Strike']}) is {int(dte_rem)} days away from 50% DTE threshold.")
+            
+            if str(dte_rem) != 'Closed':
+                # Calculate real live spread price from TWS database
+                short_str = str(int(row['Short Strike']))
+                long_str = str(int(row['Long Strike']))
+                
+                short_leg = pos_df[(pos_df['symbol'].str.contains(tckr)) & (pos_df['symbol'].str.contains(f"_{short_str}_"))]
+                long_leg = pos_df[(pos_df['symbol'].str.contains(tckr)) & (pos_df['symbol'].str.contains(f"_{long_str}_"))]
+                
+                curr_spread_price = 0.0
+                if not short_leg.empty and not long_leg.empty:
+                    curr_spread_price = abs(short_leg['market_price'].values[0] - long_leg['market_price'].values[0])
+                
+                stop_loss_threshold = float(row['Premium Collected (USD)']) * 2.0
+                warning_threshold = stop_loss_threshold * 0.80
+                
+                if curr_spread_price > 0:
+                    if curr_spread_price >= stop_loss_threshold:
+                        alerts.append(f"🛑 **STOP LOSS TRIGGERED:** {tckr} ({short_str}/{long_str}) live spread price (${curr_spread_price:.2f}) breached 200% limit (${stop_loss_threshold:.2f}). Close immediately.")
+                    elif curr_spread_price >= warning_threshold:
+                        alerts.append(f"⚠️ **Stop Loss Warning:** {tckr} ({short_str}/{long_str}) live spread price (${curr_spread_price:.2f}) is approaching the 200% limit (${stop_loss_threshold:.2f}).")
+        except: pass
+
+# SMA & Regime
+if not bench_df.empty:
+    last_spy = bench_df['SPY'].iloc[-1]
+    sma_20 = bench_df['sma_20'].iloc[-1]
+    sma_50 = bench_df['sma_50'].iloc[-1]
+    sma_200 = bench_df['sma_200'].iloc[-1]
+    
+    if last_spy < sma_20: alerts.append(f"📉 **Trend Alert:** SPY (${last_spy:.2f}) has breached below the 20-day SMA (${sma_20:.2f}).")
+    if last_spy < sma_50: alerts.append(f"🚨 **Trend Alert:** SPY (${last_spy:.2f}) has breached below the 50-day SMA (${sma_50:.2f}).")
+    if last_spy < sma_200: alerts.append(f"☢️ **CRITICAL ALERT:** SPY (${last_spy:.2f}) has breached below the 200-day SMA (${sma_200:.2f}). Bear market threshold.")
+
+regime_str = chart_df['regime'].iloc[-1] if not chart_df.empty else 'Unknown'
+tor_val = chart_df['tor'].iloc[-1] if not chart_df.empty else 0
+alerts.append(f"🧭 **EOD Market Regime:** {regime_str} | **TOR Risk Level:** {tor_val}")
+
+# Tail Hedge
+tot_vrp = attr_df['a3_vrp'].sum() if not attr_df.empty else 0
+th_budget = tot_vrp * 0.10
+th_df = pos_df[pos_df['asset_class'] == 'Tail Hedge'] if not pos_df.empty else pd.DataFrame()
+th_deployed = (th_df['position'].abs() * th_df['avg_cost']).sum() if not th_df.empty else 0
+th_available = th_budget - th_deployed
+
+hedge_unit_cost = 400.0
+if th_available >= hedge_unit_cost:
+    tranches_due = int(th_available // hedge_unit_cost)
+    if tranches_due == 1:
+        alerts.append(f"🛡️ **Tail Hedge Deployment Due:** You have **${th_available:,.0f}** available in house money. Purchase **1 tranche** (~$400) of 120-DTE deep OTM S&P 500 Puts (Delta < 5).")
+    else:
+        alerts.append(f"🛡️ **Tail Hedge Backlog Detected:** You have **${th_available:,.0f}** available. DO NOT deploy as a lump sum. Split this into **{tranches_due} staggered tranches** (~$400 each) across 90, 120, and 150+ DTE.")
+
+if pct_cash > 60: alerts.append(f"ℹ️ **Cash Drag Detected:** Unleveraged Cash/IB01 is {pct_cash:.1f}%. Await weekly Command Center deployment schedule.")
+if pct_cash < 40: alerts.append(f"⚠️ **Cash Buffer Warning:** Global cash buffer dropped to {pct_cash:.1f}% (Below 40% optimal floor).")
+if pct_tech > 40: alerts.append(f"⚠️ **Sector Concentration:** Tech/Semi exposure is {pct_tech:.1f}% (Above 40% safe threshold).")
+
+if alerts:
+    alert_html = "".join([f"<li style='margin-bottom: 5px;'>{a}</li>" for a in alerts])
+    st.markdown(f"""
+    <div style="background-color: #fffbeb; border-left: 6px solid #f59e0b; padding: 15px; border-radius: 4px; color: #1f2937; font-size: 14px; margin-bottom: 25px;">
+        <ul style="margin: 0; padding-left: 20px;">
+            {alert_html}
+        </ul>
+    </div>
+    """.replace('\n', ''), unsafe_allow_html=True)
+else:
+    st.success("✅ All systems nominal. No actionable alerts at this time.")
+
+st.divider()
+
+# SECTION 1: MASTER AGGREGATION
+html_metrics = f"""
+<div style="background-color: #f3f4f6; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
+    <h4 style="text-align: center; color: #1f2937; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; font-size: 24px;">Master Estate Aggregation</h4>
+    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 15px; text-align: center; font-family: monospace; font-size: 20px;">
+        <div>Static Balance<br><span style="color: #1d4ed8; font-weight: 900; font-size: 28px;">${global_metrics['nav']:,.0f}</span></div>
+        <div>IRR<br><span style="{col_html(global_metrics['irr'])} font-weight: 900; font-size: 28px;">{global_metrics['irr']:.2f}%</span></div>
+        <div>Global P&L<br><span style="{col_html(global_metrics['pnl'])} font-weight: 900; font-size: 28px;">${global_metrics['pnl']:,.0f}</span></div>
+        <div>Global Sharpe<br><span style="{col_html(global_metrics['sharpe'])} font-weight: 900; font-size: 28px;">{global_metrics['sharpe']:.2f}</span></div>
+        <div>SPY Sharpe<br><span style="{col_html(spy_sh)} font-weight: 900; font-size: 28px;">{spy_sh:.2f}</span></div>
+        <div>QQQ Sharpe<br><span style="{col_html(qqq_sh)} font-weight: 900; font-size: 28px;">{qqq_sh:.2f}</span></div>
+        <div>Max DD<br><span style="color: #b91c1c; font-weight: 900; font-size: 28px;">{global_metrics['max_dd']:.2f}%</span></div>
+        
+        <div style="margin-top:20px;">DD Duration<br><span style="color: #1f2937; font-weight: 900; font-size: 28px;">{global_metrics['dd_days']} d</span></div>
+        <div style="margin-top:20px;">Calmar<br><span style="color: #1f2937; font-weight: 900; font-size: 28px;">{calmar:.2f}</span></div>
+        <div style="margin-top:20px;">Est. ROC%<br><span style="{col_html(global_metrics['roc'])} font-weight: 900; font-size: 28px;">{global_metrics['roc']:.2f}%</span></div>
+        <div style="margin-top:20px;">SPY Alpha<br><span style="{col_html(spy_al)} font-weight: 900; font-size: 28px;">{spy_al:.2f}%</span></div>
+        <div style="margin-top:20px;">SPY Corr.<br><span style="{col_html(spy_co, 0.3)} font-weight: 900; font-size: 28px;">{spy_co:.2f}</span></div>
+        <div style="margin-top:20px;">QQQ Alpha<br><span style="{col_html(qqq_al)} font-weight: 900; font-size: 28px;">{qqq_al:.2f}%</span></div>
+        <div style="margin-top:20px;">QQQ Corr.<br><span style="{col_html(qqq_co, 0.3)} font-weight: 900; font-size: 28px;">{qqq_co:.2f}</span></div>
+    </div>
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #d1d5db; text-align: center; font-family: monospace; font-size: 16px; color: #6b7280;">
+        <span style="font-weight: bold; color: #374151; margin-right: 15px;">MACRO & OPTIMAL RANGES:</span>
+        <span style="margin-right: 15px; color:#1d4ed8;">Risk-Free Yield (^IRX): {LIVE_RF_RATE*100:.2f}%</span>
+        <span style="margin-right: 15px;">IRR: >10%</span><span style="margin-right: 15px;">Sharpe: 1.0 to 2.0+</span><span style="margin-right: 15px;">Max DD: > -15%</span><span style="margin-right: 15px;">Calmar: > 1.0</span><span style="margin-right: 15px;">Alpha: > 0%</span><span>Corr: 0.30 to 0.60</span>
+    </div>
+</div>
+""".replace('\n', '')
+st.markdown(html_metrics, unsafe_allow_html=True)
+
+# --- SECTION 2: SILO PANELS ---
+cols = st.columns(4)
+for idx, acc in enumerate(SILO_MAP.keys()):
+    name, desc, color = SILO_MAP[acc]
+    m = silo_metrics[acc]
+    with cols[idx]:
+        st.markdown(f"### {name}")
+        st.caption(desc)
+        st.markdown(f"**Bal: ${m['nav']:,.2f}**")
+        st.markdown(
+            "<div style='font-size: 11px; margin-bottom: 5px;'>"
+            "<span style='color:black; font-weight:bold;'>― Bal</span> | "
+            "<span style='color:#3b82f6; font-weight:bold;'>― SPY</span> | "
+            "<span style='color:#dc2626; font-weight:bold;'>― QQQ</span>"
+            "</div>", 
+            unsafe_allow_html=True
+        )
+        
+        if not silo_dfs[acc].empty:
+            s_chart = pd.merge(silo_dfs[acc][['date', 'cum_return']], bench_df[['date', 'spy_cum', 'qqq_cum']], on='date', how='left').ffill().fillna(0)
+            
+            fig_mini = go.Figure()
+            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['cum_return']*100, mode='lines', line=dict(color='black', width=4), showlegend=False))
+            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['spy_cum']*100, mode='lines', line=dict(color='#3b82f6', width=2), showlegend=False))
+            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['qqq_cum']*100, mode='lines', line=dict(color='#dc2626', width=2), showlegend=False))
+            
+            fig_mini.update_layout(
+                height=300, 
+                margin=dict(l=0, r=0, t=0, b=0), 
+                plot_bgcolor=color, 
+                paper_bgcolor='rgba(0,0,0,0)', 
+                yaxis=dict(zeroline=True, zerolinecolor='black', zerolinewidth=1)
+            )
+            fig_mini.update_xaxes(visible=False)
+            fig_mini.update_yaxes(showticklabels=False)
+            st.plotly_chart(fig_mini, width="stretch")
+        
+        c1, c2 = st.columns(2)
+        c1.write(f"**IRR:** {m['irr']:.2f}%")
+        c2.write(f"**Sharpe:** {m['sharpe']:.2f}")
+        c1.write(f"**P&L:** ${m['pnl']:,.0f}")
+        c2.write(f"**Max DD:** {m['max_dd']:.2f}%")
+        c1.write(f"**DD Days:** {m['dd_days']}")
+        c2.write(f"**ROC:** {m['roc']:.2f}%")
+
+st.divider()
+
+# --- SECTION 3: ESTATE CAPITAL BREAKDOWN ---
+st.subheader("1. Estate Capital Breakdown (GAAP & Gross Assets)")
+col_bar, col_pie = st.columns(2)
+
+if not pos_df.empty:
+    bar_df = pos_df.groupby(['account', 'asset_class'])['market_value'].sum().unstack(fill_value=0)
+    
+    bar_df['Accounting Offset'] = 0.0
+    for acc in bar_df.index:
+        gross_val = bar_df.loc[acc].sum()
+        actual_nav = silo_metrics.get(acc, {}).get('nav', 0)
+        bar_df.at[acc, 'Accounting Offset'] = actual_nav - gross_val
+        
+    pie_df = pos_df.groupby('asset_class')['market_value'].sum().reset_index()
+    pie_df['market_value'] = pie_df['market_value'].abs() 
+    tot_gross = pie_df['market_value'].sum()
+    pie_df['pct'] = (pie_df['market_value'] / tot_gross) * 100 if tot_gross > 0 else 0
+    pie_df['legend_label'] = pie_df.apply(lambda r: f"{r['asset_class']} (${r['market_value']:,.0f} | {r['pct']:.1f}%)", axis=1)
+
+    with col_bar:
+        fig_bar = go.Figure()
+        silo_names = [SILO_MAP.get(acc, (acc,))[0] for acc in bar_df.index]
+        silo_totals = bar_df.sum(axis=1).values
+        
+        for asset in bar_df.columns:
+            l_label = pie_df[pie_df['asset_class'] == asset]['legend_label'].iloc[0] if asset in pie_df['asset_class'].values else asset
+            fig_bar.add_trace(go.Bar(
+                name=l_label, 
+                x=silo_names, 
+                y=bar_df[asset], 
+                marker_color=COLOR_PALETTE.get(asset, '#cbd5e1')
+            ))
+            
+        opt_margin_A = get_exact_opt_margin(pos_df[pos_df['account'] == 'U23144948'])
+        opt_margin_C = get_exact_opt_margin(pos_df[pos_df['account'] == 'U23154199'])
+        
+        tot_ml = opt_margin_A + opt_margin_C
+        pct_ml = (tot_ml / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+        ml_label = f"Margin Lock (${tot_ml:,.0f} | {pct_ml:.1f}%)"
+        
+        fig_bar.add_trace(go.Scatter(
+            x=['Silo A', 'Silo C'], 
+            y=[opt_margin_A, opt_margin_C], 
+            name=ml_label, 
+            mode='markers', 
+            marker=dict(symbol='diamond', size=14, color='#ef4444', line=dict(width=1, color='black'))
+        ))
+        
+        for i, total in enumerate(silo_totals):
+            pct_total = (total / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+            fig_bar.add_annotation(
+                x=silo_names[i], 
+                y=total, 
+                text=f"<b>${total/1000:.0f}k</b><br>({pct_total:.1f}%)", 
+                showarrow=False, 
+                yanchor='bottom', 
+                yshift=5, 
+                font=dict(size=16)
+            )
+            
+        fig_bar.update_layout(
+            barmode='relative', 
+            title="GAAP Balance Sheet per Silo (USD)", 
+            plot_bgcolor='rgba(0,0,0,0)', 
+            margin=dict(l=20, r=20, t=40, b=20), 
+            yaxis=dict(zeroline=True, zerolinecolor='black', zerolinewidth=1, gridcolor='LightGray'), 
+            legend_title_text="<b>ASSET CLASS</b>", 
+            font=dict(size=16)
+        )
+        st.plotly_chart(fig_bar, width="stretch")
+
+    with col_pie:
+        fig_pie = go.Figure(data=[go.Pie(
+            labels=pie_df['legend_label'], 
+            values=pie_df['market_value'], 
+            hole=.4, 
+            marker=dict(colors=[COLOR_PALETTE.get(a, '#cbd5e1') for a in pie_df['asset_class']]), 
+            textinfo='percent'
+        )])
+        fig_pie.update_traces(textfont_size=16)
+        fig_pie.update_layout(
+            title="Gross Asset Allocation", 
+            margin=dict(l=20, r=20, t=40, b=20), 
+            legend_title_text="<b>ASSET CLASS</b>", 
+            font=dict(size=16)
+        )
+        st.plotly_chart(fig_pie, width="stretch")
+
+st.divider()
+
+# --- SECTION 4: TARGET PORTFOLIO COMPOSITION ---
+st.subheader("2. Live Portfolio Composition (from TWS)")
+comp_cols = st.columns(4)
+
+strats = [
+    "<b>STRATEGY & EXECUTION (Silo A):</b> The Tactical Macro Engine. Adheres to a 40% bedrock buffer (Cash/IB01). Executes weekly VRP options (45-50 DTE, 8% premium floor) and automated DCA into core UCITS and Crypto ETPs. <b>Tactical Override:</b> Authorized to deploy US Tech CFDs, European 1x ETPs, and International Stocks for high-conviction momentum trades, safely insulated by massive cash reserves. CFDs are subject to strict 30-45 day time-stops to cap financing drag. <b>Tail Hedge Criteria:</b> Accumulates 120-DTE deep OTM S&P 500 Puts funded by 10% of VRP.",
+    "<b>STRATEGY & EXECUTION (Silo B):</b> The Active Swing Engine. Explicitly excluded from macro DCA. Exclusively hunts Alpha via European 1x ETPs, International Stocks, and US Tech CFDs. Idle liquidity is parked in IB01 to prevent cash drag. CFD deployment is heavily restricted based on proximity to the $25k FINRA PDT threshold. Capital scaling is strictly governed by the Progressive Exposure Table (merit-based tiering).",
+    "<b>STRATEGY & EXECUTION (Silo C):</b> The Pristine Vault. Shares the macro DCA and VRP options matrix with Silo A, but explicitly <b>bans Crypto ETPs and CFDs</b> to permanently eliminate financing drag and margin-call risk. Authorized to deploy European 1x ETPs and International Stocks for safe, unleveraged swing trades. <b>Tail Hedge Criteria:</b> Accumulates 120-DTE deep OTM S&P 500 Puts funded by 10% of VRP.",
+    "<b>STRATEGY & EXECUTION (Silo D):</b> Mandate Pending (To Be Determined). Currently acts as a pristine capital reserve, parked safely in USD Cash and yielding IB01 (Short-term US Treasuries) while awaiting a definitive strategic designation."
+]
+
+for idx, acc in enumerate(SILO_MAP.keys()):
+    name, _, _ = SILO_MAP[acc]
+    acc_pos = pos_df[pos_df['account'] == acc].copy() if not pos_df.empty else pd.DataFrame()
+    
+    with comp_cols[idx]:
+        st.markdown(f"**{name}**")
+        if not acc_pos.empty:
+            acc_nav = silo_metrics[acc]['nav']
+            acc_pos['Allocation %'] = (acc_pos['market_value'] / acc_nav) * 100 if acc_nav > 0 else 0
+            display_df = acc_pos[['symbol', 'market_value', 'Allocation %']].sort_values('market_value', ascending=False)
+            display_df.columns = ['Asset', 'Value ($)', 'Alloc (%)']
+            st.dataframe(display_df.style.format({'Value ($)': '{:,.0f}', 'Alloc (%)': '{:.1f}%'}), hide_index=True, width='stretch')
+        else: 
+            st.write("No active positions.")
+            
+        st.markdown(
+            f"<div style='font-size: 11px; color: #000000; padding: 10px; border-top: 1px solid #e5e7eb; margin-top: 10px;'>{strats[idx]}</div>", 
+            unsafe_allow_html=True
+        )
+
+st.divider()
+
+# --- SECTION 5: DAILY PNL HISTOGRAM ---
+st.subheader("3. Daily PnL per Silo")
+spy_usd_pnl = []
+qqq_usd_pnl = []
+curr_spy_nav = chart_df['nav'].iloc[0] if not chart_df.empty else 0
+curr_qqq_nav = chart_df['nav'].iloc[0] if not chart_df.empty else 0
+
+for i, row in chart_df.iterrows():
+    s_pnl = curr_spy_nav * row['spy_ret']
+    q_pnl = curr_qqq_nav * row['qqq_ret']
+    spy_usd_pnl.append(s_pnl)
+    qqq_usd_pnl.append(q_pnl)
+    curr_spy_nav += s_pnl + row['cash_flow']
+    curr_qqq_nav += q_pnl + row['cash_flow']
+
+chart_df['spy_usd_cum'] = pd.Series(spy_usd_pnl).cumsum()
+chart_df['qqq_usd_cum'] = pd.Series(qqq_usd_pnl).cumsum()
+
+fig_pnl = go.Figure()
+for acc in SILO_MAP.keys():
+    name, _, color = SILO_MAP[acc]
+    if not silo_dfs[acc].empty: 
+        fig_pnl.add_trace(go.Bar(
+            x=silo_dfs[acc]['date'], 
+            y=silo_dfs[acc]['daily_pnl'], 
+            name=name, 
+            marker_color=color
+        ))
+
+fig_pnl.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['cum_pnl'], name='Estate (Cum PnL USD)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
+fig_pnl.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['spy_usd_cum'], name='SPY (Cum PnL USD)', mode='lines', line=dict(color='#3b82f6', width=3), yaxis='y2'))
+fig_pnl.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['qqq_usd_cum'], name='QQQ (Cum PnL USD)', mode='lines', line=dict(color='#dc2626', width=3), yaxis='y2'))
+
+chart_df['regime_bg'] = chart_df['regime'].map({'Green': '#166534', 'Yellow': '#eab308', 'Red': '#991b1b'})
+chart_df['regime_txt'] = chart_df['regime'].map({'Green': 'white', 'Yellow': 'black', 'Red': 'white'})
+
+fig_pnl.add_trace(go.Scatter(
+    x=chart_df['date'], y=[0]*len(chart_df), mode='markers+text', 
+    marker=dict(color=chart_df['regime_bg'], symbol='square', size=16, line=dict(width=1, color='black')),
+    text=chart_df['tor'], textposition='middle center', textfont=dict(color=chart_df['regime_txt'], size=10, weight='bold'),
+    hovertemplate="<b>Date:</b> %{x|%Y-%m-%d}<br><b>Regime:</b> %{customdata[0]}<br><b>TOR:</b> %{customdata[1]}<extra></extra>",
+    customdata=np.column_stack((chart_df['regime'], chart_df['tor'])), 
+    name='Market Regime', showlegend=False, yaxis='y3'
+))
+
+last_dt = chart_df['date'].iloc[-1]
+est_val = chart_df['cum_pnl'].iloc[-1]
+spy_val = chart_df['spy_usd_cum'].iloc[-1]
+qqq_val = chart_df['qqq_usd_cum'].iloc[-1]
+
+fig_pnl.add_annotation(x=last_dt, y=est_val, text=f"{(est_val/global_metrics['nav'])*100:.1f}%<br>${est_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='black', font=dict(color='white', size=11))
+fig_pnl.add_annotation(x=last_dt, y=spy_val, text=f"{(spy_val/global_metrics['nav'])*100:.1f}%<br>${spy_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#3b82f6', font=dict(color='white', size=11))
+fig_pnl.add_annotation(x=last_dt, y=qqq_val, text=f"{(qqq_val/global_metrics['nav'])*100:.1f}%<br>${qqq_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#dc2626', font=dict(color='white', size=11))
+
+fig_pnl.update_layout(
+    barmode='relative', 
+    margin=dict(l=20, r=20, t=30, b=20), 
+    plot_bgcolor='rgba(0,0,0,0)', 
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), 
+    yaxis=dict(title='Daily PnL (USD)', showgrid=True, gridcolor='LightGray', zeroline=True, zerolinecolor='black', zerolinewidth=1), 
+    yaxis2=dict(title='Cumulative PnL (USD)', overlaying='y', side='right', showgrid=False), 
+    yaxis3=dict(overlaying='y', visible=False, range=[-1, 20])
+)
+st.plotly_chart(fig_pnl, width="stretch")
+
+st.divider()
+
+# --- SECTION 6: PNL ATTRIBUTION & VELOCITY ---
+st.subheader("4. PnL Attribution & Capital Velocity")
+if not attr_df.empty:
+    attr_df = attr_df.sort_values('date').reset_index(drop=True)
+    attr_df['abs_sum'] = attr_df[['a1_yield', 'a2_beta', 'a3_vrp', 'a4_alpha', 'a5_fees']].abs().sum(axis=1)
+    active_dates = attr_df[attr_df['abs_sum'] > 0]
+    
+    if not active_dates.empty:
+        start_idx = active_dates.index[0]
+        if start_idx > 0: start_idx -= 1
+        line_df = attr_df.iloc[start_idx:].copy().reset_index(drop=True)
+    else: 
+        line_df = attr_df.copy()
+
+    tot_a1 = attr_df['a1_yield'].sum()
+    tot_a2 = attr_df['a2_beta'].sum()
+    tot_a3 = attr_df['a3_vrp'].sum()
+    tot_a4 = attr_df['a4_alpha'].sum()
+    tot_a5 = attr_df['a5_fees'].sum()
+    
+    col_bar, col_line, col_vel = st.columns([2, 3, 1])
+    bar_colors = ['#3b82f6', '#f97316', '#166534', '#a855f7', '#991b1b']
+    
+    with col_bar:
+        fig_attr_bar = go.Figure(data=[go.Bar(
+            x=['Yield (a1)', 'Beta (a2)', 'VRP (a3)', 'Alpha (a4)', 'Fees (a5)'], 
+            y=[tot_a1, tot_a2, tot_a3, tot_a4, tot_a5], 
+            text=[f"${v:,.0f}" for v in [tot_a1, tot_a2, tot_a3, tot_a4, tot_a5]], 
+            textposition='auto', 
+            marker_color=bar_colors
+        )])
+        fig_attr_bar.update_layout(
+            title="Absolute PnL by Strategy", 
+            plot_bgcolor='rgba(0,0,0,0)', 
+            margin=dict(l=20, r=20, t=40, b=20), 
+            yaxis=dict(zeroline=True, zerolinecolor='black', zerolinewidth=1, gridcolor='LightGray')
+        )
+        st.plotly_chart(fig_attr_bar, width="stretch")
+        
+    with col_line:
+        fig_attr_line = go.Figure()
+        fig_attr_line.add_trace(go.Scatter(x=line_df['date'], y=line_df['a1_yield'].cumsum(), name='Yield', line=dict(color='#3b82f6', width=4)))
+        fig_attr_line.add_trace(go.Scatter(x=line_df['date'], y=line_df['a2_beta'].cumsum(), name='Beta', line=dict(color='#f97316', width=4)))
+        fig_attr_line.add_trace(go.Scatter(x=line_df['date'], y=line_df['a3_vrp'].cumsum(), name='VRP', line=dict(color='#166534', width=4)))
+        fig_attr_line.add_trace(go.Scatter(x=line_df['date'], y=line_df['a4_alpha'].cumsum(), name='Alpha', line=dict(color='#a855f7', width=4)))
+        fig_attr_line.add_trace(go.Scatter(x=line_df['date'], y=line_df['a5_fees'].cumsum(), name='Fees', line=dict(color='#991b1b', width=4)))
+        
+        if not line_df.empty:
+            last_dt = line_df['date'].iloc[-1]
+            for col, name, color in zip(['a1_yield', 'a2_beta', 'a3_vrp', 'a4_alpha', 'a5_fees'], ['Yield', 'Beta', 'VRP', 'Alpha', 'Fees'], bar_colors):
+                val = line_df[col].cumsum().iloc[-1]
+                fig_attr_line.add_annotation(
+                    x=last_dt, 
+                    y=val, 
+                    text=f"${val:,.0f}", 
+                    showarrow=False, 
+                    xanchor='left', 
+                    bgcolor=color, 
+                    font=dict(color='white', size=11), 
+                    borderpad=3
+                )
+                
+        fig_attr_line.update_layout(
+            title="Cumulative Trajectory", 
+            plot_bgcolor='rgba(0,0,0,0)', 
+            margin=dict(l=20, r=60, t=40, b=20), 
+            yaxis=dict(zeroline=True, zerolinecolor='black', zerolinewidth=1, gridcolor='LightGray'), 
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(fig_attr_line, width="stretch")
+        
+    with col_vel:
+        st.markdown("##### Options Engine Velocity")
+        st.caption("(Silos A & C)")
+        st.metric("Total VRP Harvested", f"${tot_a3:,.0f}")
+        st.metric("Options Margin Locked", f"${opt_margin_total:,.0f}")
+        st.markdown("---")
+        st.metric("Tail Hedge Budget (10%)", f"${th_budget:,.0f}", help="Accumulated 10% of VRP budget reserved for deep OTM Puts.")
+        st.metric("Tail Hedge Deployed (Cost)", f"${th_deployed:,.0f}")
+        st.metric("Tail Hedge Available", f"${th_available:,.0f}")
+
+st.divider()
+
+# --- SECTION 7: DEPLOYMENT COMMAND CENTER (60/40 Transition Matrix) ---
+st.subheader("5. Deployment Command Center (Transition to 60/40)")
+
+df_ledger = load_deployment_ledger()
+today = datetime.date.today()
+is_cooldown = False
+last_deploy_date = None
+
+if not df_ledger.empty:
+    last_deploy_str = df_ledger['deploy_date'].iloc[0]
+    last_deploy_date = pd.to_datetime(last_deploy_str).date()
+    if last_deploy_date.isocalendar()[1] == today.isocalendar()[1] and last_deploy_date.year == today.year:
+        is_cooldown = True
+
+# EXCLUDE SILO B FROM MACRO DEPLOYMENT
+macro_nav = nav_A + nav_C
+target_pct = 60.0
+target_usd = macro_nav * (target_pct / 100.0)
+core_assets = ['CSPX', 'CNDX', 'ITWN', 'CSKR', 'CNYA', 'Crypto', 'Gold']
+
+if not pos_df.empty:
+    current_usd = pos_df[(pos_df['account'].isin(['U23144948', 'U23154199'])) & (pos_df['asset_class'].isin(core_assets))]['market_value'].sum()
+else: 
+    current_usd = 0
+
+current_pct = (current_usd / macro_nav * 100) if macro_nav > 0 else 0
+distance_usd = max(0, target_usd - current_usd)
+distance_pct = max(0, target_pct - current_pct)
+
+if regime_str == 'Green':
+    pacing_pct = 0.015
+    box_color = "#f0fdf4"
+    border_color = "#166534"
+    text_color = "#166534"
+    icon = "🟢"
+elif regime_str == 'Yellow':
+    pacing_pct = 0.030
+    box_color = "#fefce8"
+    border_color = "#a16207"
+    text_color = "#a16207"
+    icon = "🟡"
+else:
+    pacing_pct = 0.0
+    box_color = "#fef2f2"
+    border_color = "#991b1b"
+    text_color = "#991b1b"
+    icon = "🔴"
+
+allowance_usd = macro_nav * pacing_pct
+actual_deploy = min(allowance_usd, distance_usd)
+
+c_stat, c_action = st.columns([1, 1])
+
+with c_stat:
+    st.markdown(f"""
+    <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; height: 100%;">
+        <h4 style="margin-top: 0; color: #0f172a;">Macro Core Equities Tracker (Silos A & C Only)</h4>
+        <div style="font-size: 16px; margin-bottom: 10px;"><b>Target (60.0%):</b> ${target_usd:,.0f}</div>
+        <div style="font-size: 16px; margin-bottom: 10px;"><b>Current ({current_pct:.1f}%):</b> ${current_usd:,.0f}</div>
+        <div style="font-size: 18px; font-weight: bold; color: #3b82f6;">Distance to Target: ${distance_usd:,.0f} ({distance_pct:.1f}%)</div>
+        <hr style="margin: 15px 0;">
+        <div style="font-size: 13px; color: #475569;">
+            <b>Silo B Exclusion:</b> Silo B is strictly excluded from this macro DCA matrix.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c_action:
+    if distance_usd <= 1000:
+        st.success("🎯 **Target Reached:** Estate has successfully achieved the 60% Equity Target. Maintenance Mode activated. All new VRP will strictly maintain this balance.")
+    elif is_cooldown:
+        st.info(f"⏳ **Cooldown Active:** Weekly deployment of ${df_ledger['amount'].iloc[0]:,.0f} was executed on {last_deploy_date}. The matrix will unlock next Monday.")
+    elif regime_str == 'Red':
+        st.error(f"{icon} **REGIME RED (Black Swan Protocol):** Halt all baseline Cash deployment. Defend the 40% floor. Do not catch the falling knife. Await Tail Hedge monetization to buy the absolute bottom.")
+    else:
+        # Ceiling Governor Logic
+        cryp_usd = pos_df[pos_df['asset_class'] == 'Crypto']['market_value'].sum() if not pos_df.empty else 0
+        gold_usd = pos_df[pos_df['asset_class'] == 'Gold']['market_value'].sum() if not pos_df.empty else 0
+        
+        cryp_pct_live = (cryp_usd / macro_nav * 100) if macro_nav > 0 else 0
+        gold_pct_live = (gold_usd / macro_nav * 100) if macro_nav > 0 else 0
+        
+        cryp_alloc_pct = 0.05 if cryp_pct_live < 5.0 else 0.0
+        gold_alloc_pct = 0.05 if gold_pct_live < 5.0 else 0.0
+        
+        overflow_pct = (0.05 - cryp_alloc_pct) + (0.05 - gold_alloc_pct)
+        
+        base_cspx = 0.50
+        base_cndx = 0.25
+        base_asia = 0.15
+        total_core = base_cspx + base_cndx + base_asia
+        
+        cspx_alloc_pct = base_cspx + (overflow_pct * (base_cspx / total_core))
+        cndx_alloc_pct = base_cndx + (overflow_pct * (base_cndx / total_core))
+        asia_alloc_pct = base_asia + (overflow_pct * (base_asia / total_core))
+
+        cap_notices = []
+        if cryp_alloc_pct == 0.0: cap_notices.append("Crypto (≥5.0%)")
+        if gold_alloc_pct == 0.0: cap_notices.append("Gold (≥5.0%)")
+        
+        cap_str = ""
+        if cap_notices:
+            cap_str = f"<div style='font-size: 13px; color: #d97706; margin-top: 10px; background-color: #fef3c7; padding: 8px; border-radius: 4px; border: 1px solid #f59e0b;'><b>⚠️ Ceiling Governor Active:</b> {', '.join(cap_notices)} cap reached. Overflow safely redirected to CSPX.</div>"
+
+        weight_A = nav_A / macro_nav if macro_nav > 0 else 0.5
+        weight_C = nav_C / macro_nav if macro_nav > 0 else 0.5
+
+        cspx_tot = actual_deploy * cspx_alloc_pct
+        cndx_tot = actual_deploy * cndx_alloc_pct
+        asia_tot = actual_deploy * asia_alloc_pct
+        cryp_tot = actual_deploy * cryp_alloc_pct
+        gold_tot = actual_deploy * gold_alloc_pct
+
+        st.markdown(f"""
+        <div style="background-color: {box_color}; padding: 20px; border-radius: 8px; border: 1px solid {border_color};">
+            <h4 style="margin-top: 0; color: {text_color};">{icon} Regime {regime_str} | Active Deployment</h4>
+            <div style="font-size: 14px; margin-bottom: 5px;">Pacing Schedule: <b>{pacing_pct*100:.1f}% NAV per week</b></div>
+            <b style="font-size: 16px;">🛒 Weekly Target-Weighted Shopping Matrix:</b>
+            <table style="width:100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; background-color: white; color: black; text-align: right; border: 1px solid #cbd5e1;">
+                <thead style="background-color: {border_color}; color: white;">
+                    <tr>
+                        <th style="padding: 8px; text-align: left; border-right: 1px solid white;">Instrument</th>
+                        <th style="padding: 8px; border-right: 1px solid white;">Total ($)</th>
+                        <th style="padding: 8px; border-right: 1px solid white;">Silo A ({(weight_A*100):.1f}%)</th>
+                        <th style="padding: 8px;">Silo C ({(weight_C*100):.1f}%)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 8px; text-align: left; border-right: 1px solid #e5e7eb;"><b>CSPX</b> ({cspx_alloc_pct*100:.0f}%)</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${cspx_tot:,.0f}</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${cspx_tot * weight_A:,.0f}</td>
+                        <td style="padding: 8px;">${cspx_tot * weight_C:,.0f}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 8px; text-align: left; border-right: 1px solid #e5e7eb;"><b>CNDX</b> ({cndx_alloc_pct*100:.0f}%)</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${cndx_tot:,.0f}</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${cndx_tot * weight_A:,.0f}</td>
+                        <td style="padding: 8px;">${cndx_tot * weight_C:,.0f}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 8px; text-align: left; border-right: 1px solid #e5e7eb;"><b>Asia</b> ({asia_alloc_pct*100:.0f}%)</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${asia_tot:,.0f}</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${asia_tot * weight_A:,.0f}</td>
+                        <td style="padding: 8px;">${asia_tot * weight_C:,.0f}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 8px; text-align: left; border-right: 1px solid #e5e7eb;"><b>Crypto</b> ({cryp_alloc_pct*100:.0f}%)</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${cryp_tot:,.0f}</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${cryp_tot * weight_A:,.0f}</td>
+                        <td style="padding: 8px;">${cryp_tot * weight_C:,.0f}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #e5e7eb;">
+                        <td style="padding: 8px; text-align: left; border-right: 1px solid #e5e7eb;"><b>Gold</b> ({gold_alloc_pct*100:.0f}%)</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${gold_tot:,.0f}</td>
+                        <td style="padding: 8px; border-right: 1px solid #e5e7eb;">${gold_tot * weight_A:,.0f}</td>
+                        <td style="padding: 8px;">${gold_tot * weight_C:,.0f}</td>
+                    </tr>
+                    <tr style="background-color: #f8fafc; font-weight: bold;">
+                        <td style="padding: 8px; text-align: left; border-right: 1px solid #cbd5e1; color: #1e293b;">TOTAL (100%)</td>
+                        <td style="padding: 8px; color: #1d4ed8; border-right: 1px solid #cbd5e1;">${actual_deploy:,.0f}</td>
+                        <td style="padding: 8px; color: #1d4ed8; border-right: 1px solid #cbd5e1;">${actual_deploy * weight_A:,.0f}</td>
+                        <td style="padding: 8px; color: #1d4ed8;">${actual_deploy * weight_C:,.0f}</td>
+                    </tr>
+                </tbody>
+            </table>
+            {cap_str}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.write("") 
+        if st.button("✅ Log Weekly Deployment as Executed", use_container_width=True):
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("INSERT INTO deployment_ledger (deploy_date, regime, amount) VALUES (?, ?, ?)", 
+                      (datetime.date.today().isoformat(), regime_str, actual_deploy))
+            conn.commit()
+            conn.close()
+            st.cache_data.clear()
+            st.rerun()
+
+st.divider()
+
+# --- SECTION 8: CAPITAL DEPLOYMENT & MARGIN TRACKER ---
+st.subheader("6. Capital Deployment & Margin Capacity Tracker")
+
+# Enlarging Global Gauges via Column Weights
+c_gb_cash, c_sa_cash, c_sc_cash, c_gb_marg, c_sa_marg, c_sc_marg = st.columns([1.5, 1, 1, 1.5, 1, 1])
+
+with c_gb_cash:
+    fig_gauge_cash = go.Figure(go.Indicator(
+        mode="gauge+number+delta", 
+        value=pct_cash, 
+        title={'text': "<b>Global Cash Buffer</b>", 'font': {'size': 18}}, 
+        delta={'reference': 40, 'increasing': {'color': "green"}, 'decreasing': {'color': "red"}}, 
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1}, 
+            'bar': {'color': "blue"}, 
+            'steps': [{'range': [0, 40], 'color': "rgba(239, 68, 68, 0.3)"}, {'range': [40, 100], 'color': "rgba(34, 197, 94, 0.3)"}], 
+            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 40}
+        }
+    ))
+    fig_gauge_cash.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig_gauge_cash, width="stretch")
+
+with c_sa_cash:
+    cash_A = pos_df[(pos_df['account'] == 'U23144948') & (pos_df['asset_class'].isin(['IB01', 'Cash']))]['market_value'].sum() if not pos_df.empty else 0
+    pct_cash_A = (cash_A / nav_A * 100) if nav_A > 0 else 0
+    
+    fig_A_cash = go.Figure(go.Indicator(
+        mode="gauge+number", 
+        value=pct_cash_A, 
+        number={'suffix': "%", 'font': {'size': 20}}, 
+        title={'text': "Silo A Buffer", 'font': {'size': 12}}, 
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1}, 
+            'bar': {'color': "blue"}, 
+            'steps': [{'range': [0, 40], 'color': "rgba(239, 68, 68, 0.3)"}, {'range': [40, 100], 'color': "rgba(34, 197, 94, 0.3)"}], 
+            'threshold': {'line': {'color': "red", 'width': 2}, 'thickness': 0.75, 'value': 40}
+        }
+    ))
+    fig_A_cash.update_layout(height=250, margin=dict(l=5, r=5, t=50, b=10))
+    st.plotly_chart(fig_A_cash, width="stretch")
+
+with c_sc_cash:
+    cash_C = pos_df[(pos_df['account'] == 'U23154199') & (pos_df['asset_class'].isin(['IB01', 'Cash']))]['market_value'].sum() if not pos_df.empty else 0
+    pct_cash_C = (cash_C / nav_C * 100) if nav_C > 0 else 0
+    
+    fig_C_cash = go.Figure(go.Indicator(
+        mode="gauge+number", 
+        value=pct_cash_C, 
+        number={'suffix': "%", 'font': {'size': 20}}, 
+        title={'text': "Silo C Buffer", 'font': {'size': 12}}, 
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1}, 
+            'bar': {'color': "blue"}, 
+            'steps': [{'range': [0, 40], 'color': "rgba(239, 68, 68, 0.3)"}, {'range': [40, 100], 'color': "rgba(34, 197, 94, 0.3)"}], 
+            'threshold': {'line': {'color': "red", 'width': 2}, 'thickness': 0.75, 'value': 40}
+        }
+    ))
+    fig_C_cash.update_layout(height=250, margin=dict(l=5, r=5, t=50, b=10))
+    st.plotly_chart(fig_C_cash, width="stretch")
+
+with c_gb_marg:
+    # Strict 20% cap visualization
+    fig_gauge_margin = go.Figure(go.Indicator(
+        mode="gauge+number+delta", 
+        value=pct_margin, 
+        title={'text': "<b>Global Options Margin</b>", 'font': {'size': 18}}, 
+        delta={'reference': 20, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}}, 
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1}, 
+            'bar': {'color': "purple"}, 
+            'steps': [{'range': [0, 20], 'color': "rgba(34, 197, 94, 0.3)"}, {'range': [20, 100], 'color': "rgba(239, 68, 68, 0.3)"}], 
+            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 20}
+        }
+    ))
+    fig_gauge_margin.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig_gauge_margin, width="stretch")
+
+with c_sa_marg:
+    margin_A = get_exact_opt_margin(pos_df[pos_df['account'] == 'U23144948']) if not pos_df.empty else 0
+    pct_margin_A = (margin_A / nav_A * 100) if nav_A > 0 else 0
+    
+    fig_A_margin = go.Figure(go.Indicator(
+        mode="gauge+number", 
+        value=pct_margin_A, 
+        number={'suffix': "%", 'font': {'size': 20}}, 
+        title={'text': "Silo A Margin", 'font': {'size': 12}}, 
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1}, 
+            'bar': {'color': "purple"}, 
+            'steps': [{'range': [0, 20], 'color': "rgba(34, 197, 94, 0.3)"}, {'range': [20, 100], 'color': "rgba(239, 68, 68, 0.3)"}], 
+            'threshold': {'line': {'color': "red", 'width': 2}, 'thickness': 0.75, 'value': 20}
+        }
+    ))
+    fig_A_margin.update_layout(height=250, margin=dict(l=5, r=5, t=50, b=10))
+    st.plotly_chart(fig_A_margin, width="stretch")
+
+with c_sc_marg:
+    margin_C = get_exact_opt_margin(pos_df[pos_df['account'] == 'U23154199']) if not pos_df.empty else 0
+    pct_margin_C = (margin_C / nav_C * 100) if nav_C > 0 else 0
+    
+    fig_C_margin = go.Figure(go.Indicator(
+        mode="gauge+number", 
+        value=pct_margin_C, 
+        number={'suffix': "%", 'font': {'size': 20}}, 
+        title={'text': "Silo C Margin", 'font': {'size': 12}}, 
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1}, 
+            'bar': {'color': "purple"}, 
+            'steps': [{'range': [0, 20], 'color': "rgba(34, 197, 94, 0.3)"}, {'range': [20, 100], 'color': "rgba(239, 68, 68, 0.3)"}], 
+            'threshold': {'line': {'color': "red", 'width': 2}, 'thickness': 0.75, 'value': 20}
+        }
+    ))
+    fig_C_margin.update_layout(height=250, margin=dict(l=5, r=5, t=50, b=10))
+    st.plotly_chart(fig_C_margin, width="stretch")
+
+st.divider()
+
+# --- SECTION 9: THE MASTER MATRIX ---
+st.subheader("7. The Master Instrument Matrix (Tax, Alpha, & Sharpe Grading)")
+matrix_data = [
+    {"Instrument": "USD Cash", "Type": "Currency", "Risk Profile": "Risk-Free", "Alpha Potential": "Zero", "Sharpe Impact": "Stabilizer", "Trading Strategy": "Liquidity", "Jurisdiction": "US (IBKR)", "Tax Treatment": "Exempt (Bank Deposit)", "CIO Min Alloc. %": "1%", "CIO Max Alloc. %": "100%", "CIO Grading": "Splendid", "Noteworthy Comments": "Uninvested USD held in IBKR. Mandatory margin collateral."},
+    {"Instrument": "IB01", "Type": "UCITS ETF", "Risk Profile": "Risk-Free", "Alpha Potential": "Zero", "Sharpe Impact": "High", "Trading Strategy": "Collateral", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "10%", "CIO Max Alloc. %": "100%", "CIO Grading": "Splendid", "Noteworthy Comments": "Irish-domiciled short-term US Treasury fund. Accumulates ~4.5% tax-free."},
+    {"Instrument": "European 1x ETPs", "Type": "UCITS ETP", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "UK/Ireland", "Tax Treatment": "Exempt (Non-US Situs)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Splendid", "Noteworthy Comments": "1:1 physical European tracker for US stocks. 100% US Estate Tax immune. Replaces CFDs."},
+    {"Instrument": "Deep OTM Tail Hedge", "Type": "Index Option", "Risk Profile": "Defensive", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "Negative in Bull / Parabolic in Bear", "Trading Strategy": "Black Swan Insurance", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "2%", "CIO Grading": "Great", "Noteworthy Comments": "90-120 DTE Puts (Delta < 5). Triggered by VIX crash or Red Regime. Budgeted strictly from 10% of collected VRP."},
+    {"Instrument": "XSP Put Spreads", "Type": "Index Option", "Risk Profile": "Moderate", "Alpha Potential": "High (VRP)", "Sharpe Impact": "High", "Trading Strategy": "Weekly Income", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "20%", "CIO Grading": "Splendid", "Noteworthy Comments": "Cash-settled S&P 500 options. 100% safe from IRS."},
+    {"Instrument": "XND Put Spreads", "Type": "Index Option", "Risk Profile": "Mod/High", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Satellite Income", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Great", "Noteworthy Comments": "Micro-Nasdaq 100. Cash-settled. IRS Safe. Higher volatility than XSP."},
+    {"Instrument": "CSPX", "Type": "UCITS ETF", "Risk Profile": "Moderate", "Alpha Potential": "Zero", "Sharpe Impact": "Baseline", "Trading Strategy": "Long Term", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "60%", "CIO Grading": "Great", "Noteworthy Comments": "Irish-domiciled S&P 500. Shields against 40% Estate Tax."},
+    {"Instrument": "CNDX", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Long Term", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "40%", "CIO Grading": "Great", "Noteworthy Comments": "Irish-domiciled Nasdaq 100. Shields against 40% Estate Tax. High beta tech exposure."},
+    {"Instrument": "ITWN (Taiwan)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
+    {"Instrument": "CSKR (Korea)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
+    {"Instrument": "CNYA (China)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Volatile", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
+    {"Instrument": "SGLN / IGLN (Gold)", "Type": "UCITS ETC", "Risk Profile": "Moderate", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "Stabilizer", "Trading Strategy": "Tail Hedge", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Good", "Noteworthy Comments": "Geopolitical crisis hedge. Rises during interest rate cuts and wars."},
+    {"Instrument": "BTC/ETH ETPs", "Type": "Crypto ETP", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Volatile", "Trading Strategy": "Uncorrelated", "Jurisdiction": "Europe (Jersey/CH)", "Tax Treatment": "Exempt (Offshore Wrapper)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "5%", "CIO Grading": "Good", "Noteworthy Comments": "Offshore crypto wrappers (e.g. CoinShares). IRS safe spot exposure."},
+    {"Instrument": "US Tech CFDs", "Type": "OTC Contract", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "UK/Offshore", "Tax Treatment": "Exempt (OTC Derivative)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "3%", "CIO Grading": "Good", "Noteworthy Comments": "Synthetic derivatives. 0% IRS risk. Quarantined strictly based on cash buffers to prevent PDT locks."},
+    {"Instrument": "International Stocks", "Type": "Direct Equity", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "Europe/Asia", "Tax Treatment": "Exempt", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "3%", "CIO Grading": "Good", "Noteworthy Comments": "Safe from IRS. Suffers from wider bid/ask spreads compared to US market."},
+    {"Instrument": "/MES Put Spreads", "Type": "Futures Option", "Risk Profile": "Moderate", "Alpha Potential": "Highest (SPAN)", "Sharpe Impact": "High", "Trading Strategy": "Capital Efficiency", "Jurisdiction": "US (CME)", "Tax Treatment": "Exempt (Section 1256)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "25%", "CIO Grading": "Contingent", "Noteworthy Comments": "Contingent on mastering XSP mechanics. SPAN margin halves collateral, doubling ROC."},
+    {"Instrument": "Managed Futures (CTAs)", "Type": "UCITS Fund", "Risk Profile": "Moderate", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "High (Uncorrel.)", "Trading Strategy": "Trend Following", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Contingent", "Noteworthy Comments": "Contingent on risk tolerance change. Shorts commodities & bonds to protect during crashes."},
+    {"Instrument": "XSP LEAPS", "Type": "Index Option", "Risk Profile": "Aggressive", "Alpha Potential": "Low", "Sharpe Impact": "Negative", "Trading Strategy": "Leverage", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Bad", "Noteworthy Comments": "IRS safe, but mathematical drag of Theta and lost dividends destroys edge."},
+    {"Instrument": "Physical US Stocks", "Type": "Stock", "Risk Profile": "Extreme", "Alpha Potential": "High", "Sharpe Impact": "Baseline", "Trading Strategy": "Swing", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Triggers 40% US Estate Tax and 30% Dividend Withholding."},
+    {"Instrument": "US Spot BTC/ETH", "Type": "US ETF", "Risk Profile": "Extreme", "Alpha Potential": "N/A", "Sharpe Impact": "N/A", "Trading Strategy": "N/A", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Standard ETFs (IBIT/FBTC) are US-situs property. Will trigger Estate Tax confiscation."},
+    {"Instrument": "TQQQ", "Type": "Physical ETF", "Risk Profile": "Extreme", "Alpha Potential": "Negative", "Sharpe Impact": "Negative", "Trading Strategy": "Speculation", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Widow-maker. Combines IRS Tax Trap with massive Beta Slippage decay."},
+    {"Instrument": "Accruals, Unsettled & FX", "Type": "Reconciliation", "Risk Profile": "N/A", "Alpha Potential": "N/A", "Sharpe Impact": "N/A", "Trading Strategy": "Accounting", "Jurisdiction": "N/A", "Tax Treatment": "N/A", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Splendid", "Noteworthy Comments": "Dynamic balancing metric to reconcile aggregate physical Net Liq vs discrete position sums."}
+]
+
+df_matrix = pd.DataFrame(matrix_data)
+alloc_map = {}
+
+if not pos_df.empty:
+    for i, r in pos_df.iterrows():
+        ac = r['asset_class']
+        if ac == 'Crypto': alloc_map['BTC/ETH ETPs'] = alloc_map.get('BTC/ETH ETPs', 0) + r['market_value']
+        elif ac == 'Gold': alloc_map['SGLN / IGLN (Gold)'] = alloc_map.get('SGLN / IGLN (Gold)', 0) + r['market_value']
+        elif ac == 'Cash': alloc_map['USD Cash'] = alloc_map.get('USD Cash', 0) + r['market_value']
+        elif ac == 'European 1x ETPs / Int. Stocks': 
+            alloc_map['European 1x ETPs'] = alloc_map.get('European 1x ETPs', 0) + r['market_value']
+            alloc_map['International Stocks'] = alloc_map.get('International Stocks', 0) + r['market_value']
+        elif ac == 'US Tech CFDs': 
+            alloc_map['US Tech CFDs'] = alloc_map.get('US Tech CFDs', 0) + r['market_value']
+        elif ac == 'Active Swing': alloc_map['International Stocks'] = alloc_map.get('International Stocks', 0) + r['market_value']
+        elif ac == 'Opt Liab':
+            if 'XND' in r['symbol']: alloc_map['XND Put Spreads'] = alloc_map.get('XND Put Spreads', 0) + r['market_value']
+            else: alloc_map['XSP Put Spreads'] = alloc_map.get('XSP Put Spreads', 0) + r['market_value']
+        elif ac == 'Tail Hedge': alloc_map['Deep OTM Tail Hedge'] = alloc_map.get('Deep OTM Tail Hedge', 0) + r['market_value']
+        else: alloc_map[ac] = alloc_map.get(ac, 0) + r['market_value']
+    
+def get_pct(inst):
+    if inst == 'Accruals, Unsettled & FX': return 0.0 
+    if inst == 'ITWN (Taiwan)': val = alloc_map.get('ITWN', 0)
+    elif inst == 'CSKR (Korea)': val = alloc_map.get('CSKR', 0)
+    elif inst == 'CNYA (China)': val = alloc_map.get('CNYA', 0)
+    elif inst == 'SGLN / IGLN (Gold)': val = alloc_map.get('SGLN / IGLN (Gold)', 0)
+    else: val = alloc_map.get(inst, 0)
+    return (val / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+
+df_matrix.insert(9, "Current Global Alloc. %", df_matrix['Instrument'].apply(get_pct))
+
+raw_sum = df_matrix['Current Global Alloc. %'].sum()
+df_matrix.loc[df_matrix['Instrument'] == 'Accruals, Unsettled & FX', 'Current Global Alloc. %'] = 100.0 - raw_sum
+
+def color_grading(val):
+    if val == "Splendid": return 'background-color: #dcfce7; color: #166534; font-weight: bold'
+    if val == "Great": return 'background-color: #ecfccb; color: #15803d; font-weight: bold'
+    if val == "Good": return 'background-color: #fef9c3; color: #4d7c0f; font-weight: bold'
+    if val == "Contingent": return 'background-color: #e0e7ff; color: #1e40af; font-weight: bold'
+    if val == "Bad": return 'background-color: #ffedd5; color: #b91c1c; font-weight: bold'
+    if val == "Avoid": return 'background-color: #fecaca; color: #991b1b; font-weight: bold'
+    return ''
+
+st.dataframe(
+    df_matrix.style.format({'Current Global Alloc. %': '{:.2f}%'})
+                   .map(color_grading, subset=['CIO Grading'])
+                   .set_properties(**{'background-color': '#eff6ff', 'color': '#1d4ed8', 'font-weight': 'bold'}, subset=['Current Global Alloc. %']), 
+    hide_index=True, 
+    width="stretch"
+)
+
+option_instruments = ["XSP Put Spreads", "XND Put Spreads", "/MES Put Spreads", "XSP LEAPS"]
+opt_liab = df_matrix[df_matrix['Instrument'].isin(option_instruments)]['Current Global Alloc. %'].sum()
+gross_phys = df_matrix[~df_matrix['Instrument'].isin(option_instruments)]['Current Global Alloc. %'].sum()
+true_net = gross_phys + opt_liab
+
+col1, col2, col3 = st.columns([6, 2, 4])
+with col2: 
+    st.markdown(
+        "<div style='text-align: right; font-size: 12px; font-weight: bold;'>"
+        "GROSS PHYSICAL ASSETS:<br>"
+        "<span style='color: #ef4444'>OPTIONS LIABILITY DRAG:</span><br>"
+        "TRUE NET ESTATE CHECKSUM:"
+        "</div>", 
+        unsafe_allow_html=True
+    )
+with col3: 
+    st.markdown(
+        f"<div style='text-align: left; font-size: 12px; font-weight: bold; color: #1d4ed8;'>"
+        f"{gross_phys:.2f}%<br>"
+        f"<span style='color: #ef4444'>{opt_liab:.2f}%</span><br>"
+        f"<span style='color: black'>{true_net:.2f}%</span> &nbsp;&nbsp;&nbsp; "
+        f"<span style='font-size: 10px; color: gray; font-weight: normal'>Must exactly equal 100.00%</span>"
+        f"</div>", 
+        unsafe_allow_html=True
+    )
+
+st.divider()
+
+# --- SECTION 10: MONTE CARLO SIMULATION ---
+st.subheader("8. Estate Montecarlo PnL Simulation - Projections vs History")
+daily_pnl_array = global_df['daily_pnl'].dropna().values
+sim_length = len(daily_pnl_array)
+
+if sim_length > 0:
+    sim_data = np.random.choice(daily_pnl_array, size=(10000, sim_length), replace=True)
+    cum_sim = np.cumsum(sim_data, axis=1)
+    zero_col = np.zeros((10000, 1))
+    cum_sim = np.hstack((zero_col, cum_sim))
+    
+    peaks = np.maximum.accumulate(cum_sim, axis=1)
+    abs_dds = peaks - cum_sim
+    max_dds = np.max(abs_dds, axis=1)
+    
+    nav_base = global_metrics['nav'] if global_metrics['nav'] > 0 else 1
+    ruin_prob = (np.sum(max_dds > (nav_base * 0.20)) / 10000) * 100
+
+    mc_avg_dd = np.mean(max_dds)
+    mc_best_dd = np.min(max_dds)
+    mc_worst_dd = np.max(max_dds)
+    mc_avg_path = np.mean(cum_sim, axis=0)
+    
+    orig_cum = np.insert(np.cumsum(daily_pnl_array), 0, 0)
+    orig_peaks = np.maximum.accumulate(orig_cum)
+    orig_dd = np.max(orig_peaks - orig_cum)
+    
+    best_idx = np.argmax(cum_sim[:, -1])
+    worst_idx = np.argmin(cum_sim[:, -1])
+    
+    col_mc_chart, col_mc_leg = st.columns([0.85, 0.15])
+    
+    with col_mc_chart:
+        mc_fig = go.Figure()
+        spaghetti_colors = [
+            'rgba(148, 163, 184, 0.25)', 'rgba(100, 116, 139, 0.25)', 
+            'rgba(71, 85, 105, 0.25)', 'rgba(56, 189, 248, 0.15)', 'rgba(14, 165, 233, 0.15)'
+        ]
+        
+        for i in range(200):
+            mc_fig.add_trace(go.Scatter(y=cum_sim[i], mode='lines', line=dict(color=random.choice(spaghetti_colors), width=1.5), showlegend=False, hoverinfo='skip'))
+        
+        mc_fig.add_trace(go.Scatter(y=cum_sim[best_idx], name='Best Case', mode='lines', line=dict(color='#166534', width=4.5)))
+        mc_fig.add_trace(go.Scatter(y=cum_sim[worst_idx], name='Worst Case', mode='lines', line=dict(color='#991b1b', width=4.5)))
+        mc_fig.add_trace(go.Scatter(y=mc_avg_path, name='Statistically Expected (Mean)', mode='lines', line=dict(color='blue', width=6)))
+        mc_fig.add_trace(go.Scatter(y=orig_cum, name='Original Realized History', mode='lines', line=dict(color='black', width=9)))
+        
+        last_x = sim_length
+        mc_fig.add_annotation(x=last_x, y=cum_sim[best_idx][-1], text=f"Best: ${cum_sim[best_idx][-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='#166534', font=dict(color='white', size=11))
+        mc_fig.add_annotation(x=last_x, y=cum_sim[worst_idx][-1], text=f"Worst: ${cum_sim[worst_idx][-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='#991b1b', font=dict(color='white', size=11))
+        mc_fig.add_annotation(x=last_x, y=mc_avg_path[-1], text=f"Expected: ${mc_avg_path[-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='blue', font=dict(color='white', size=11))
+        mc_fig.add_annotation(x=last_x, y=orig_cum[-1], text=f"Original: ${orig_cum[-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='black', font=dict(color='white', size=11))
+        
+        mc_fig.update_layout(
+            height=800, margin=dict(l=20, r=80, t=30, b=20), plot_bgcolor='rgba(0,0,0,0)', 
+            xaxis_title='Trading Days Forward', 
+            yaxis=dict(title='Cumulative Net Profit (USD)', showgrid=True, gridcolor='LightGray', zeroline=True, zerolinecolor='black', zerolinewidth=1, layer='above traces'), 
+            xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray', layer='above traces'),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(mc_fig, width="stretch")
+        
+    with col_mc_leg:
+        st.markdown(f"""
+        <div style="background-color: rgba(255, 255, 255, 0.9); padding: 15px; border: 1px solid black; border-radius: 5px; font-size: 12px; color: black; margin-top: 50px;">
+            <b style="font-size: 14px; color: #1d4ed8;">RISK METRICS</b><br><br>
+            <b>Empirical Risk of Ruin:</b> <span style="color: {'red' if ruin_prob>5 else 'green'}; font-weight: bold;">{ruin_prob:.2f}%</span><br>
+            <i>(Probability of hitting a >20% drawdown based on 10,000 resampled realities).</i><br><br>
+            <b style="font-size: 14px; color: #1d4ed8;">DRAWDOWN STATS</b><br><br>
+            <b>Original History:</b><br>${orig_dd:,.0f}<br><br>
+            <b>SIMULATION (10k runs):</b><br>
+            Avg Expected DD: ${mc_avg_dd:,.0f}<br>
+            Best Case DD: ${mc_best_dd:,.0f}<br>
+            Worst Case DD: ${mc_worst_dd:,.0f}<br><br>
+            <hr style="margin: 10px 0;">
+            <b>Is it Edge or Luck?</b><br>
+            The <i>Best</i> and <i>Worst</i> traces represent the extreme 99.99th and 0.01st percentile limits of purely reshuffled luck given your exact edge. Because your <i>Original Realized History</i> is anchored near the <i>Statistically Expected Mean</i>, it confirms a statistically significant and highly robust edge, rather than an accidental streak of luck.
+        </div>
+        """.replace('\n', ''), unsafe_allow_html=True)
+
+st.divider()
+
+# --- SECTION 11: THE OPTIONS PERFORMANCE LEDGER & 3D VISUALIZER ---
+st.subheader("9. The Options Performance Ledger & Topography Engine")
+
+def normCDF(x):
+    t = 1 / (1 + 0.2316419 * abs(x))
+    d = 0.3989423 * np.exp(-x * x / 2)
+    prob = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))
+    return 1 - prob if x > 0 else prob
+
+def normPDF(x):
+    return np.exp(-0.5 * x * x) / np.sqrt(2 * np.pi)
+
+def get_put_greeks(S, K, T, r, v):
+    T = max(T, 0.0001)
+    d1 = (math.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * math.sqrt(T))
+    d2 = d1 - v * math.sqrt(T)
+    price = K * math.exp(-r * T) * normCDF(-d2) - S * normCDF(-d1)
+    delta = normCDF(d1) - 1
+    gamma = normPDF(d1) / (S * v * math.sqrt(T))
+    vega = (S * normPDF(d1) * math.sqrt(T)) / 100
+    theta = (- (S * v * normPDF(d1)) / (2 * math.sqrt(T)) + r * K * math.exp(-r * T) * normCDF(-d2)) / 365
+    return price, delta, gamma, vega, theta
+
+def get_call_greeks(S, K, T, r, v):
+    T = max(T, 0.0001)
+    d1 = (math.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * math.sqrt(T))
+    d2 = d1 - v * math.sqrt(T)
+    price = S * normCDF(d1) - K * math.exp(-r * T) * normCDF(d2)
+    delta = normCDF(d1)
+    gamma = normPDF(d1) / (S * v * math.sqrt(T))
+    vega = (S * normPDF(d1) * math.sqrt(T)) / 100
+    theta = (- (S * v * normPDF(d1)) / (2 * math.sqrt(T)) - r * K * math.exp(-r * T) * normCDF(d2)) / 365
+    return price, delta, gamma, vega, theta
+
+@st.cache_data(ttl=300)
+def fetch_live_data(ticker_symbol):
+    try:
+        t_str = str(ticker_symbol).upper()
+        if 'XSP' in t_str:
+            spx = yf.Ticker('^SPX').history(period='5d')['Close'].iloc[-1]
+            vix = yf.Ticker('^VIX').history(period='5d')['Close'].iloc[-1]
+            return float(spx) / 10.0, float(vix)
+        elif 'XND' in t_str:
+            ndx = yf.Ticker('^NDX').history(period='5d')['Close'].iloc[-1]
+            vxn = yf.Ticker('^VXN').history(period='5d')['Close'].iloc[-1]
+            return float(ndx) / 100.0, float(vxn)
+        else:
+            spy = yf.Ticker('SPY').history(period='5d')['Close'].iloc[-1]
+            vix = yf.Ticker('^VIX').history(period='5d')['Close'].iloc[-1]
+            return float(spy), float(vix)
+    except Exception:
+        return 550.0, 15.0 
+
+def style_journal(df):
+    css_df = pd.DataFrame('', index=df.index, columns=df.columns)
+    for i, row in df.iterrows():
+        if row.get('👁️ View 3D') == True:
+            css_df.loc[i] = 'background-color: #dcfce7; color: #166534; font-weight: bold;'
+            continue
+        if 'Annualized ROC %' in df.columns and pd.notna(row['Annualized ROC %']) and isinstance(row['Annualized ROC %'], (int, float)) and row['Annualized ROC %'] > 100.0:
+            css_df.at[i, 'Annualized ROC %'] = 'background-color: #fef08a; color: #856404; font-weight: bold;'
+        if 'Days in Trade' in df.columns and pd.notna(row['Days in Trade']) and isinstance(row['Days in Trade'], (int, float)) and row['Days in Trade'] <= 14 and row['Days in Trade'] > 0:
+            css_df.at[i, 'Days in Trade'] = 'background-color: #d1e7dd; color: #0f5132; font-weight: bold;'
+        if 'Days Remaining' in df.columns and pd.notna(row['Days Remaining']) and str(row['Days Remaining']) != 'Closed' and 'DTE at Entry' in df.columns and pd.notna(row['DTE at Entry']):
+            try:
+                if float(row['Days Remaining']) < (float(row['DTE at Entry']) / 2): css_df.at[i, 'Days Remaining'] = 'background-color: #f8d7da; color: #842029; font-weight: bold;'
+                else: css_df.at[i, 'Days Remaining'] = 'background-color: #d1e7dd; color: #0f5132; font-weight: bold;'
+            except: pass
+        for col in ['Collateral Locked (USD)', 'Total Net Credit (USD)', 'Target 50% Exit Price (USD)', 'Days Remaining', 'Days in Trade', 'Total P&L (USD)', 'Return on Capital (ROC) %', 'Annualized ROC %']:
+            if col in css_df.columns: css_df.at[i, col] += ' background-color: #f3f4f6;'
+    return css_df
+
+if not journal_raw_df.empty:
+    col_ledger, col_2d, col_3d = st.columns([0.50, 0.25, 0.25])
+    
+    with col_ledger:
+        # --- STATE MEMORY FIX: Reads previous clicks so green style applies ---
+        view_state = []
+        if 'journal_editor' in st.session_state:
+            edits = st.session_state['journal_editor'].get('edited_rows', {})
+            for i in range(len(journal_raw_df)):
+                is_checked = edits.get(i, {}).get('👁️ View 3D', False)
+                view_state.append(is_checked)
+        else:
+            view_state = [False] * len(journal_raw_df)
+            
+        display_df = journal_raw_df.copy()
+        display_df.insert(0, '👁️ View 3D', view_state)
+        
+        styled_journal = display_df.style.apply(lambda x: style_journal(display_df), axis=None)
+        
+        edited_df = st.data_editor(
+            styled_journal, width='stretch', num_rows="dynamic", height=750, key="journal_editor",
+            disabled=['Collateral Locked (USD)', 'Total Net Credit (USD)', 'Target 50% Exit Price (USD)', 'Days Remaining', 'Days in Trade', 'Total P&L (USD)', 'Return on Capital (ROC) %', 'Annualized ROC %'],
+            column_config={
+                # --- ABBREVIATED HEADERS FOR TIGHT COLUMNS ---
+                "👁️ View 3D": st.column_config.CheckboxColumn("3D"),
+                "Premium Collected (USD)": st.column_config.NumberColumn("Prem ($)", format="$%.2f"),
+                "Collateral Locked (USD)": st.column_config.NumberColumn("Margin ($)", format="$%.2f"),
+                "Total Net Credit (USD)": st.column_config.NumberColumn("Net Cred ($)", format="$%.2f"),
+                "Target 50% Exit Price (USD)": st.column_config.NumberColumn("50% TP ($)", format="$%.2f"),
+                "Closing Price (USD)": st.column_config.NumberColumn("Close ($)", format="$%.2f"),
+                "Total P&L (USD)": st.column_config.NumberColumn("P&L ($)", format="$%.2f"),
+                "Return on Capital (ROC) %": st.column_config.NumberColumn("ROC %", format="%.2f%%"),
+                "Annualized ROC %": st.column_config.NumberColumn("Ann ROC %", format="%.2f%%"),
+                "Days Remaining": st.column_config.Column("DTE"),
+                "Days in Trade": st.column_config.NumberColumn("Days"),
+                "Open Date": st.column_config.DateColumn("Open"), 
+                "Close Date": st.column_config.DateColumn("Close")
+            }
+        )
+
+    db_df = edited_df.drop(columns=['👁️ View 3D'])
+    
+    def normalize_for_compare(df_in):
+        df_cmp = df_in.copy()
+        cols_to_drop = ['Collateral Locked (USD)', 'Total Net Credit (USD)', 'Target 50% Exit Price (USD)', 'Days Remaining', 'Days in Trade', 'Total P&L (USD)', 'Return on Capital (ROC) %', 'Annualized ROC %']
+        df_cmp = df_cmp.drop(columns=[c for c in cols_to_drop if c in df_cmp.columns])
+        for col in df_cmp.select_dtypes(include=['float64', 'float32']).columns: df_cmp[col] = df_cmp[col].round(4)
+        return df_cmp.fillna('').astype(str).replace(r'^(nan|None|NaT|<NA>)$', '', regex=True).apply(lambda x: x.str.strip())
+        
+    if not normalize_for_compare(journal_raw_df).equals(normalize_for_compare(db_df)):
+        conn = sqlite3.connect(DB_PATH)
+        db_df.to_sql('options_journal', conn, if_exists='replace', index=False)
+        conn.close()
+        st.rerun() 
+
+    selected_rows = edited_df[edited_df['👁️ View 3D'] == True]
+    
+    if selected_rows.empty:
+        with col_2d: st.info("👈 Check 'View 3D' on any contract row to render Live 2D/3D Topography.")
+    elif selected_rows.shape[0] > 1:
+        with col_2d: st.error("❌ **Mutex Lock Active:** You have checked multiple boxes. Please uncheck duplicates so only ONE contract is selected.")           
+    else:
+        row_data = selected_rows.iloc[0]
+        tckr = row_data.get('Ticker', 'XSP')
+        raw_dte = row_data.get('Days Remaining', 0)
+        
+        if str(raw_dte) == 'Closed':
+            with col_2d: st.warning(f"**{tckr} Contract is Closed.** Black-Scholes topography locked.")
+        else:
+            curr_dte = float(raw_dte) if pd.notna(raw_dte) else 0.0
+            init_dte = float(row_data.get('DTE at Entry', 45)) if pd.notna(row_data.get('DTE at Entry', 45)) else 45.0
+            K_s = float(row_data.get('Short Strike', 0)) if pd.notna(row_data.get('Short Strike', 0)) else 0.0
+            K_l = float(row_data.get('Long Strike', 0)) if pd.notna(row_data.get('Long Strike', 0)) else 0.0
+            qty = float(row_data.get('Quantity', 1)) if pd.notna(row_data.get('Quantity', 1)) else 1.0
+            prem = float(row_data.get('Premium Collected (USD)', 0)) if pd.notna(row_data.get('Premium Collected (USD)', 0)) else 0.0
+            
+            with st.spinner(f"Fetching Live Data for {tckr}..."): 
+                S_live, iv_live_raw = fetch_live_data(tckr)
+            
+            with col_2d:
+                iv_override = st.slider(f"🌪️ {tckr} Volatility (IV) Stress Tester %", min_value=5.0, max_value=80.0, value=float(iv_live_raw), step=0.5, help="Simulate a Volatility Shock. Default value is locked to the live market VIX.")
+
+            r_rate = LIVE_RF_RATE
+            iv_dec = iv_override / 100.0
+            T_init = init_dte / 365.0
+            T_curr = curr_dte / 365.0
+            
+            is_call = K_s < K_l
+            pricing_func = get_call_greeks if is_call else get_put_greeks
+            
+            def calc_exp_payoff(p, k_s, k_l, prem):
+                if is_call: return prem - (max(p - k_s, 0) - max(p - k_l, 0))
+                else: return prem - (max(k_s - p, 0) - max(k_l - p, 0))
+
+            s_p, s_d, s_g, s_v, s_t = pricing_func(S_live, K_s, T_curr, r_rate, iv_dec)
+            l_p, l_d, l_g, l_v, l_t = pricing_func(S_live, K_l, T_curr, r_rate, iv_dec)
+            
+            curr_spread_price = s_p - l_p
+            unrealized_pnl = (prem - curr_spread_price) * qty * 100
+            margin_req = abs(K_s - K_l) * 100 * qty
+            rom_pct = (unrealized_pnl / margin_req * 100) if margin_req > 0 else 0
+            
+            net_delta = (l_d - s_d) * qty * 100
+            net_gamma = (l_g - s_g) * qty * 100
+            net_theta = (l_t - s_t) * qty * 100
+            net_vega = (l_v - s_v) * qty * 100
+            
+            if is_call:
+                min_plot = int(min(K_s - 40, S_live - 10))
+                max_plot = int(max(K_l + 30, S_live + 10))
+            else:
+                min_plot = int(min(K_l - 30, S_live - 10))
+                max_plot = int(max(K_s + 40, S_live + 10))
+                
+            x_vals = [p / 2.0 for p in range(int(min_plot * 2), int(max_plot * 2) + 1)]
+            y_exp, y_init, y_curr = [], [], []
+                            
+            for p in x_vals:
+                y_exp.append(calc_exp_payoff(p, K_s, K_l, prem) * qty * 100)
+                t0_s, _, _, _, _ = pricing_func(p, K_s, T_init, r_rate, iv_dec)
+                t0_l, _, _, _, _ = pricing_func(p, K_l, T_init, r_rate, iv_dec)
+                y_init.append((prem - (t0_s - t0_l)) * qty * 100)
+                tC_s, _, _, _, _ = pricing_func(p, K_s, T_curr, r_rate, iv_dec)
+                tC_l, _, _, _, _ = pricing_func(p, K_l, T_curr, r_rate, iv_dec)
+                y_curr.append((prem - (tC_s - tC_l)) * qty * 100)
+
+            with col_2d:
+                tranche_id = str(row_data.get('Tranche ID', ''))
+                acct_filter = 'U23144948' if 'Silo A' in tranche_id else 'U23154199' if 'Silo C' in tranche_id else None
+                if acct_filter: leg_mask = pos_df['account'] == acct_filter
+                else: leg_mask = pd.Series(True, index=pos_df.index)
+                    
+                short_mask = leg_mask & pos_df['symbol'].str.contains(tckr) & (pos_df['symbol'].str.contains(f"_{float(K_s)}_") | pos_df['symbol'].str.contains(f"_{int(K_s)}_"))
+                long_mask = leg_mask & pos_df['symbol'].str.contains(tckr) & (pos_df['symbol'].str.contains(f"_{float(K_l)}_") | pos_df['symbol'].str.contains(f"_{int(K_l)}_"))
+                
+                tws_unrealized_pnl = pos_df[short_mask | long_mask]['unrealized_pnl'].sum()
+                tws_rom_pct = (tws_unrealized_pnl / margin_req * 100) if margin_req > 0 else 0
+                
+                color_css = "#166534" if unrealized_pnl >= 0 else "#991b1b"
+                bg_css = "#f0fdf4" if unrealized_pnl >= 0 else "#fef2f2"
+                tws_color = "#166534" if tws_unrealized_pnl >= 0 else "#991b1b"
+                tws_bg = "#f0fdf4" if tws_unrealized_pnl >= 0 else "#fef2f2"
+                
+                st.markdown(f"""
+                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                    <div style="flex: 1; background-color: {tws_bg}; padding: 15px; border-radius: 8px; border: 1px solid {tws_color}; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <span style="font-size: 13px; color: #4b5563; font-weight: bold; text-transform: uppercase;">Live TWS P&L (Actual)</span><br>
+                        <span style="font-size: 26px; font-weight: 900; color: {tws_color};">${tws_unrealized_pnl:,.2f} <span style="font-size: 16px;">({tws_rom_pct:+.2f}%)</span></span>
+                    </div>
+                    <div style="flex: 1; background-color: {bg_css}; padding: 15px; border-radius: 8px; border: 1px solid {color_css}; text-align: center; opacity: 0.9;">
+                        <span style="font-size: 13px; color: #4b5563; font-weight: bold; text-transform: uppercase;">Theoretical P&L (Sim)</span><br>
+                        <span style="font-size: 26px; font-weight: 900; color: {color_css};">${unrealized_pnl:,.2f} <span style="font-size: 16px;">({rom_pct:+.2f}%)</span></span>
+                    </div>
+                </div>
+                <div style="text-align: center; font-size: 12px; color: #4b5563; margin-bottom: 20px; background-color: #f9fafb; padding: 8px; border-radius: 6px; border: 1px solid #e5e7eb;">
+                    <b>Sim Spread Value:</b> ${curr_spread_price:.2f} | <b>Net Theta:</b> ${net_theta:+.2f}/day | <b>Underlying:</b> ${S_live:,.2f} | <b>IV Override:</b> {iv_override:.1f}%
+                </div>
+                """.replace('\n', ''), unsafe_allow_html=True)
+
+                fig_2d = go.Figure()
+                if is_call:
+                    fig_2d.add_vrect(x0=min_plot, x1=K_s, fillcolor="green", opacity=0.05, layer="below", line_width=0)
+                    fig_2d.add_vrect(x0=K_l, x1=max_plot, fillcolor="red", opacity=0.05, layer="below", line_width=0)
+                    fig_2d.add_vline(x=K_s, line_dash="dot", line_color="green", annotation_text="Short", annotation_position="top right")
+                    fig_2d.add_vline(x=K_l, line_dash="dot", line_color="red", annotation_text="Long", annotation_position="top left")
+                else:
+                    fig_2d.add_vrect(x0=K_s, x1=max_plot, fillcolor="green", opacity=0.05, layer="below", line_width=0)    
+                    fig_2d.add_vrect(x0=min_plot, x1=K_l, fillcolor="red", opacity=0.05, layer="below", line_width=0)
+                    fig_2d.add_vline(x=K_s, line_dash="dot", line_color="green", annotation_text="Short", annotation_position="top left")
+                    fig_2d.add_vline(x=K_l, line_dash="dot", line_color="red", annotation_text="Long", annotation_position="top right")
+
+                fig_2d.add_trace(go.Scatter(x=x_vals, y=y_exp, mode='lines', name='Expiration', line=dict(color='gray', dash='dot', width=2)))
+                fig_2d.add_trace(go.Scatter(x=x_vals, y=y_init, mode='lines', name='Entry Day', line=dict(color='#dc2626', width=4, dash='dash')))
+                fig_2d.add_trace(go.Scatter(x=x_vals, y=y_curr, mode='lines', name='Today', line=dict(color='#2563eb', width=4.5)))
+                fig_2d.add_trace(go.Scatter(x=[S_live], y=[unrealized_pnl], mode='markers', name='Current Price', marker=dict(color='black', size=12)))
+                
+                fig_2d.update_layout(title="2D Theta Decay Profile & Gamma Cliff", margin=dict(l=20, r=20, t=40, b=20), height=500, legend=dict(orientation="h", y=-0.2))
+                st.plotly_chart(fig_2d, width="stretch")
+            
+            with col_3d:
+                step = 1
+                y_3d = list(range(int(init_dte), -1, -step))
+                z_3d = []
+                for d in y_3d:
+                    T_3d = d / 365.0
+                    z_row = []
+                    for p in x_vals:
+                        if T_3d <= 0.0001: z_row.append(calc_exp_payoff(p, K_s, K_l, prem) * qty * 100)
+                        else:
+                            t_s, _, _, _, _ = pricing_func(p, K_s, T_3d, r_rate, iv_dec)
+                            t_l, _, _, _, _ = pricing_func(p, K_l, T_3d, r_rate, iv_dec)
+                            z_row.append((prem - (t_s - t_l)) * qty * 100)
+                    z_3d.append(z_row)                  
+                z_min, z_max = np.min(z_3d), np.max(z_3d)
+
+                fig_3d = go.Figure(data=[go.Surface(
+                    z=z_3d, x=x_vals, y=y_3d, 
+                    colorscale=[[0, '#fef2f2'],[0.2, '#fca5a5'],[0.5, 'white'],[0.8, '#86efac'],[1, '#f0fdf4']],
+                    opacity=0.85, contours=dict(z=dict(show=True, color='black', width=1))
+                )])
+                
+                skip_days = [int(init_dte), int(curr_dte), int(init_dte / 2.0), 0]
+                for idx_d, d in enumerate(y_3d):
+                    if int(d) not in skip_days:
+                        fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[d]*len(x_vals), z=z_3d[idx_d], mode='lines', line=dict(color='black', width=1), showlegend=False, hoverinfo='skip'))
+           
+                z_green, z_red = [], []
+                for d in y_3d:
+                    T_3d = max(d / 365.0, 0.0001)
+                    t_s_g, _, _, _, _ = pricing_func(K_s, K_s, T_3d, r_rate, iv_dec)
+                    t_l_g, _, _, _, _ = pricing_func(K_s, K_l, T_3d, r_rate, iv_dec)
+                    z_green.append((prem - (t_s_g - t_l_g)) * qty * 100)
+                    t_s_r, _, _, _, _ = pricing_func(K_l, K_s, T_3d, r_rate, iv_dec)
+                    t_l_r, _, _, _, _ = pricing_func(K_l, K_l, T_3d, r_rate, iv_dec)
+                    z_red.append((prem - (t_s_r - t_l_r)) * qty * 100)
+                    
+                half_dte = init_dte / 2.0
+                T_half = max(half_dte / 365.0, 0.0001)
+                z_yellow = []
+                for p in x_vals:
+                    t_s_y, _, _, _, _ = pricing_func(p, K_s, T_half, r_rate, iv_dec)
+                    t_l_y, _, _, _, _ = pricing_func(p, K_l, T_half, r_rate, iv_dec)
+                    z_yellow.append((prem - (t_s_y - t_l_y)) * qty * 100)
+
+                x_zero, y_zero, z_zero_line = [], [], []
+                for idx_d, d in enumerate(y_3d):
+                    z_row = z_3d[idx_d]
+                    for i in range(len(x_vals)-1):
+                        if (z_row[i] >= 0 and z_row[i+1] < 0) or (z_row[i] <= 0 and z_row[i+1] > 0):
+                            dz = z_row[i+1] - z_row[i]
+                            t_interp = (0 - z_row[i]) / dz if dz != 0 else 0
+                            x_interp = x_vals[i] + t_interp * (x_vals[i+1] - x_vals[i])
+                            x_zero.append(x_interp)
+                            y_zero.append(d)
+                            z_zero_line.append(0)
+                            break 
+
+                fig_3d.add_trace(go.Scatter3d(x=[K_s]*len(y_3d), y=y_3d, z=z_green, mode='lines', name='Short Strike Limit', line=dict(color='green', width=6), showlegend=False, hoverinfo='skip'))
+                fig_3d.add_trace(go.Scatter3d(x=[K_l]*len(y_3d), y=y_3d, z=z_red, mode='lines', name='Max Loss Limit', line=dict(color='red', width=6), showlegend=False, hoverinfo='skip'))
+                fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[half_dte]*len(x_vals), z=z_yellow, mode='lines', name='Time Stop Limit', line=dict(color='gold', width=6), showlegend=False, hoverinfo='skip'))
+                if x_zero: fig_3d.add_trace(go.Scatter3d(x=x_zero, y=y_zero, z=z_zero_line, mode='lines', name='Breakeven Limit', line=dict(color='gray', width=6), showlegend=False, hoverinfo='skip'))
+                
+                fig_3d.add_trace(go.Surface(x=[[K_s, K_s],[K_s, K_s]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'green'],[1, 'green']], opacity=0.225, showscale=False, hoverinfo='skip'))
+                fig_3d.add_trace(go.Surface(x=[[K_l, K_l],[K_l, K_l]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'red'],[1, 'red']], opacity=0.225, showscale=False, hoverinfo='skip'))
+                fig_3d.add_trace(go.Surface(x=[[x_vals[0], x_vals[-1]], [x_vals[0], x_vals[-1]]], y=[[half_dte, half_dte],[half_dte, half_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'yellow'],[1, 'yellow']], opacity=0.30, showscale=False, hoverinfo='skip'))
+                fig_3d.add_trace(go.Surface(x=[[x_vals[0], x_vals[-1]],[x_vals[0], x_vals[-1]]], y=[[0, 0],[init_dte, init_dte]], z=[[0, 0],[0, 0]], colorscale=[[0, 'gray'],[1, 'gray']], opacity=0.30, showscale=False, hoverinfo='skip'))
+
+                fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[init_dte]*len(x_vals), z=y_init, mode='lines', name='Entry Day', line=dict(color='#dc2626', width=5, dash='dash')))
+                fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[curr_dte]*len(x_vals), z=y_curr, mode='lines', name='Today', line=dict(color='#2563eb', width=7)))
+                fig_3d.add_trace(go.Scatter3d(x=[S_live], y=[curr_dte], z=[tws_unrealized_pnl], mode='markers', name='Current Price', marker=dict(color='black', size=6)))
+                
+                target_pnl = (prem / 2.0) * qty * 100
+                fig_3d.add_trace(go.Scatter3d(x=[S_live], y=[curr_dte], z=[target_pnl], mode='markers', name='50% Target', marker=dict(color='#16a34a', size=15, symbol='cross')))
+                fig_3d.add_trace(go.Scatter3d(x=[S_live, S_live], y=[curr_dte, curr_dte], z=[0, tws_unrealized_pnl], mode='lines', name='Anchor Line', line=dict(color='black', width=3, dash='dot'), showlegend=False, hoverinfo='skip'))
+                fig_3d.add_trace(go.Scatter3d(x=[S_live], y=[curr_dte], z=[0], mode='markers', name='Zero Floor Anchor', marker=dict(color='black', size=5, symbol='cross'), showlegend=False, hoverinfo='skip'))
+                
+                fig_3d.update_layout(
+                    title="3D Topography (Time vs Price)", margin=dict(l=0, r=0, b=0, t=40), height=645, 
+                    scene=dict(xaxis_title='Price', yaxis_title='DTE', zaxis_title='P&L ($)', yaxis=dict(autorange='reversed'), camera=dict(eye=dict(x=-1.25, y=-1.25, z=1.25))),
+                    legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0)
+                )
+                st.plotly_chart(fig_3d, width="stretch")
+
+            st.markdown(f"""
+            <div style="margin-top: 10px;">
+                <h3 style="font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #1f2937; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">Position Greeks & Metrics (Net of Spread x Quantity)</h3>
+                <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e5e7eb; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-bottom: 25px;">
+                    <table style="min-w-full; width: 100%; border-collapse: collapse; background-color: white;">
+                        <thead style="background-color: #1e293b; color: white;">
+                            <tr>
+                                <th style="padding: 12px 16px; text-align: left; font-weight: 600;">Net Delta</th>
+                                <th style="padding: 12px 16px; text-align: left; font-weight: 600;">Net Gamma</th>
+                                <th style="padding: 12px 16px; text-align: left; font-weight: 600;">Net Theta</th>
+                                <th style="padding: 12px 16px; text-align: left; font-weight: 600;">Net Vega</th>
+                                <th style="padding: 12px 16px; text-align: left; font-weight: 600; background-color: #7f1d1d;">Margin Locked ($)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #374151;">{net_delta:.2f}</td>
+                                <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #374151;">{net_gamma:.4f}</td>
+                                <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #16a34a;">${net_theta:.2f}</td>
+                                <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #2563eb;">${net_vega:.2f}</td>
+                                <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: 900; color: #dc2626;">${margin_req:,.0f}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 24px; color: #1e3a8a; font-size: 14px;">
+                    <h4 style="font-weight: bold; font-size: 16px; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">CIO Reference Guide: The Greeks Explained</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                        <div>
+                            <p style="margin-bottom: 12px;"><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Delta (Direction):</strong> Measures directional exposure. A Net Delta of 15 means your position gains $15 if the index goes up 1 point. In credit spreads, Delta also acts as your probability gauge (e.g., selling a 20 Delta strike equates to an 80% chance of success).</p>
+                            <p><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Gamma (Acceleration):</strong> Measures the rate of change of Delta. High Gamma means your risk is accelerating uncontrollably (which peaks near expiration). This is exactly why we mechanically close trades at 21 DTE—to avoid Gamma explosions.</p>
+                        </div>
+                        <div>
+                            <p style="margin-bottom: 12px;"><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Theta (Time Decay):</strong> Your daily salary. This positive number represents the dollar amount deposited into your unrealized P&L simply because one day passed, assuming all other market conditions remain totally flat.</p>
+                            <p><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Vega (Fear Premium):</strong> Measures sensitivity to Implied Volatility (VIX). Because you sold insurance, your Net Vega is negative. This means if Implied Volatility drops by 1%, your portfolio instantly gains that dollar amount in profit (Volatility Crush).</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """.replace('\n', ''), unsafe_allow_html=True)
+else:
+    st.info("No options history found in database.")

@@ -1,0 +1,501 @@
+r"""
+=============================================================================
+Script Name: Generate_Estate_Dashboard_v6.py
+Purpose: Generates the Interactive Family Estate Dashboard.
+         VERSION 6: 
+         - 0.5% slider increments displaying live $ amounts and %.
+         - Silos A & C identical; Silo D (Yellow) excludes XSP.
+         - Silo B optimized for IB01, Cash, CFDs, Intl Stocks.
+         - Pie chart displays raw dollars and percentages.
+         - Black Swan Cash removed; "Just-In-Time" IB01 liquidation assumed.
+Author: Chief Investment Officer AI Advisor
+Date: April 2026
+=============================================================================
+"""
+
+import os
+import pandas as pd
+import numpy as np
+
+# ---------------------------------------------------------
+# 1. Define Paths
+# ---------------------------------------------------------
+target_directory = r"C:\Users\donca\Desktop\Desktop HP Envy x360 al 22Abr24\Docs Manuel\IBKR_Options"
+csv_file_path = os.path.join(target_directory, "IBKR_Daily_Data.csv")
+full_file_path = os.path.join(target_directory, "Family_Estate_Dashboard_v6.html")
+
+if not os.path.exists(target_directory):
+    os.makedirs(target_directory)
+
+# ---------------------------------------------------------
+# 2. The Quantitative Math Engine (XIRR & Sharpe)
+# ---------------------------------------------------------
+def calculate_xirr(dates, cfs):
+    try:
+        def xnpv(rate):
+            if rate <= -1.0: return float('inf')
+            t0 = dates.iloc[0]
+            return sum([cf / (1 + rate)**((d - t0).days / 365.0) for cf, d in zip(cfs, dates)])
+        
+        rate = 0.10 
+        for _ in range(100):
+            val = xnpv(rate)
+            deriv = (xnpv(rate + 0.0001) - val) / 0.0001
+            if abs(deriv) < 1e-8: break
+            rate_new = rate - val / deriv
+            if abs(rate_new - rate) < 1e-6: return rate_new
+            rate = rate_new
+        return rate
+    except:
+        return 0.0
+
+def process_account_metrics(df, account_id):
+    df_acc = df[df['AccountID'] == account_id].copy()
+    if df_acc.empty or len(df_acc) < 2:
+        return "N/A", "N/A"
+    
+    df_acc = df_acc.sort_values('Date')
+    df_acc['Prev_NAV'] = df_acc['NAV'].shift(1)
+    df_acc['Daily_Return'] = (df_acc['NAV'] - df_acc['CashFlow'] - df_acc['Prev_NAV']) / df_acc['Prev_NAV']
+    df_acc['Daily_Return'] = df_acc['Daily_Return'].replace([np.inf, -np.inf], np.nan).fillna(0)
+    
+    sharpe_str = "N/A"
+    if df_acc['Daily_Return'].std() > 0:
+        daily_rf = 0.045 / 252 
+        excess_returns = df_acc['Daily_Return'] - daily_rf
+        sharpe = np.sqrt(252) * (excess_returns.mean() / df_acc['Daily_Return'].std())
+        sharpe_str = f"{sharpe:.2f}"
+    
+    df_acc['IRR_CF'] = -df_acc['CashFlow']
+    cfs = df_acc['IRR_CF'].tolist()
+    dates = df_acc['Date'].tolist()
+    
+    final_nav = df_acc['NAV'].iloc[-1]
+    cfs.append(final_nav)
+    dates.append(dates[-1])
+    
+    dates_series = pd.to_datetime(pd.Series(dates))
+    irr = calculate_xirr(dates_series, cfs)
+    irr_str = f"{(irr * 100):.2f}%"
+    
+    return irr_str, sharpe_str
+
+def get_color_class(val_str):
+    if "N/A" in val_str or "Awaiting" in val_str or "--" in val_str: return "text-gray-400"
+    if "-" in val_str: return "text-red-400"
+    return "text-green-400"
+
+# ---------------------------------------------------------
+# 3. Read CSV and Calculate Metrics
+# ---------------------------------------------------------
+metrics = {
+    "U23144948": {"irr": "Awaiting Data", "sharpe": "--"},
+    "U23139264": {"irr": "Awaiting Data", "sharpe": "--"},
+    "U23154199": {"irr": "Awaiting Data", "sharpe": "--"},
+    "U25218481": {"irr": "Awaiting Data", "sharpe": "--"}
+}
+
+if os.path.exists(csv_file_path):
+    try:
+        raw_df = pd.read_csv(csv_file_path)
+        raw_df['Date'] = pd.to_datetime(raw_df['Date'].astype(str), format='%Y%m%d')
+        df = raw_df.groupby(['AccountID', 'Date']).agg({'NAV': 'last', 'CashFlow': 'sum'}).reset_index()
+        for acc in metrics.keys():
+            irr, sharpe = process_account_metrics(df, acc)
+            metrics[acc] = {"irr": irr, "sharpe": sharpe}
+        print("Data successfully parsed. Metrics calculated.")
+    except Exception as e:
+        print(f"Error parsing CSV: {e}")
+else:
+    print(f"Notice: CSV file not found at {csv_file_path}. Generating HTML with placeholder data.")
+
+# ---------------------------------------------------------
+# 4. Define HTML Payload
+# ---------------------------------------------------------
+html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Estate Master Allocator v6</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        .splendid { background-color: #dcfce7; color: #166534; font-weight: bold;}
+        .great { background-color: #ecfccb; color: #15803d; font-weight: bold;}
+        .good { background-color: #fef9c3; color: #4d7c0f; font-weight: bold;}
+        .bad { background-color: #ffedd5; color: #b91c1c; font-weight: bold;}
+        .avoid { background-color: #fecaca; color: #991b1b; font-weight: bold;}
+        input[type=range] { height: 6px; accent-color: #3b82f6; }
+        .bg-yellow-theme { background-color: #ca8a04; }
+        .border-yellow-theme { border-color: #eab308; }
+        .text-yellow-theme { color: #fef08a; }
+    </style>
+</head>
+<body class="bg-slate-50 text-gray-800 font-sans p-4 md:p-6">
+
+    <div class="max-w-[1800px] mx-auto bg-white rounded-xl shadow-xl p-6 border border-gray-200">
+        
+        <div class="text-center mb-6">
+            <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight">Family Estate Master Dashboard</h1>
+            <p class="text-gray-500 mt-2 font-medium">Silo Allocation & Institutional Data Engine v6</p>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="mb-8 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="bg-blue-900 text-white p-4 rounded-xl shadow-md text-center border-b-4 border-blue-500">
+                <h4 class="text-sm text-blue-200 uppercase tracking-widest font-bold">Silo A</h4>
+                <p class="text-xs mb-1">Persons 1 and 2<br>U23144948</p>
+                <div class="flex justify-between text-sm mt-2 border-t border-blue-700 pt-2 font-mono">
+                    <span>IRR: <span class="VAR_COLOR_A_IRR font-bold">VAR_A_IRR</span></span>
+                    <span>Sharpe: <span class="VAR_COLOR_A_SHARPE font-bold">VAR_A_SHARPE</span></span>
+                </div>
+            </div>
+            <div class="bg-purple-900 text-white p-4 rounded-xl shadow-md text-center border-b-4 border-purple-500">
+                <h4 class="text-sm text-purple-200 uppercase tracking-widest font-bold">Silo B</h4>
+                <p class="text-xs mb-1">Persons 1 and 2<br>U23139264</p>
+                <div class="flex justify-between text-sm mt-2 border-t border-purple-700 pt-2 font-mono">
+                    <span>IRR: <span class="VAR_COLOR_B_IRR font-bold">VAR_B_IRR</span></span>
+                    <span>Sharpe: <span class="VAR_COLOR_B_SHARPE font-bold">VAR_B_SHARPE</span></span>
+                </div>
+            </div>
+            <div class="bg-green-900 text-white p-4 rounded-xl shadow-md text-center border-b-4 border-green-500">
+                <h4 class="text-sm text-green-200 uppercase tracking-widest font-bold">Silo C</h4>
+                <p class="text-xs mb-1">Persons 1 and 3<br>U23154199</p>
+                <div class="flex justify-between text-sm mt-2 border-t border-green-700 pt-2 font-mono">
+                    <span>IRR: <span class="VAR_COLOR_C_IRR font-bold">VAR_C_IRR</span></span>
+                    <span>Sharpe: <span class="VAR_COLOR_C_SHARPE font-bold">VAR_C_SHARPE</span></span>
+                </div>
+            </div>
+            <div class="bg-yellow-theme text-white p-4 rounded-xl shadow-md text-center border-b-4 border-yellow-theme">
+                <h4 class="text-sm text-yellow-theme uppercase tracking-widest font-bold">Silo D</h4>
+                <p class="text-xs mb-1">Persons 1 and 4<br>U25218481</p>
+                <div class="flex justify-between text-sm mt-2 border-t border-yellow-500 pt-2 font-mono">
+                    <span>IRR: <span class="VAR_COLOR_D_IRR font-bold">VAR_D_IRR</span></span>
+                    <span>Sharpe: <span class="VAR_COLOR_D_SHARPE font-bold">VAR_D_SHARPE</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Silo Inputs Section -->
+        <div class="mb-8 bg-gray-50 p-4 rounded-xl border shadow-sm">
+            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">1. Estate Capital (Adjustable Silo Balances)</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div><label class="block text-sm font-bold text-gray-700">Silo A ($)</label><input type="number" id="siloA" value="588000" class="mt-1 w-full rounded-md p-2 border" oninput="updateUI()"></div>
+                <div><label class="block text-sm font-bold text-gray-700">Silo B ($)</label><input type="number" id="siloB" value="30000" class="mt-1 w-full rounded-md p-2 border" oninput="updateUI()"></div>
+                <div><label class="block text-sm font-bold text-gray-700">Silo C ($)</label><input type="number" id="siloC" value="289000" class="mt-1 w-full rounded-md p-2 border" oninput="updateUI()"></div>
+                <div><label class="block text-sm font-bold text-gray-700">Silo D ($)</label><input type="number" id="siloD" value="150000" class="mt-1 w-full rounded-md p-2 border" oninput="updateUI()"></div>
+            </div>
+        </div>
+
+        <!-- Target Allocation Sliders -->
+        <div class="mb-8 bg-white p-4 rounded-xl border shadow-sm">
+            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">2. Target Portfolio Composition (%)</h3>
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                
+                <!-- Silo A -->
+                <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <h4 class="font-bold text-blue-900 mb-2 text-sm border-b border-blue-200 pb-1">Silo A</h4>
+                    <label class="text-xs font-semibold">IB01: <span id="a_ib01_val"></span></label><input type="range" id="a_ib01" min="0" max="100" step="0.5" value="40" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">CSPX: <span id="a_cspx_val"></span></label><input type="range" id="a_cspx" min="0" max="100" step="0.5" value="25" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">XUSE: <span id="a_xuse_val"></span></label><input type="range" id="a_xuse" min="0" max="100" step="0.5" value="15" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">EIMI: <span id="a_eimi_val"></span></label><input type="range" id="a_eimi" min="0" max="100" step="0.5" value="5" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">XSP Margin: <span id="a_xsp_val"></span></label><input type="range" id="a_xsp" min="0" max="100" step="0.5" value="10" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">Cash: <span id="a_cash_val"></span></label><input type="range" id="a_cash" min="0" max="100" step="0.5" value="5" class="w-full mb-1" oninput="updateUI()">
+                    <p class="text-xs text-red-600 font-bold mt-1 h-4" id="a_warning"></p>
+                </div>
+
+                <!-- Silo B -->
+                <div class="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                    <h4 class="font-bold text-purple-900 mb-2 text-sm border-b border-purple-200 pb-1">Silo B</h4>
+                    <label class="text-xs font-semibold">IB01: <span id="b_ib01_val"></span></label><input type="range" id="b_ib01" min="0" max="100" step="0.5" value="40" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">Cash: <span id="b_cash_val"></span></label><input type="range" id="b_cash" min="0" max="100" step="0.5" value="10" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">CFDs: <span id="b_cfd_val"></span></label><input type="range" id="b_cfd" min="0" max="100" step="0.5" value="25" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">Intl Stocks: <span id="b_intl_val"></span></label><input type="range" id="b_intl" min="0" max="100" step="0.5" value="25" class="w-full mb-1" oninput="updateUI()">
+                    <p class="text-xs text-red-600 font-bold mt-1 h-4" id="b_warning"></p>
+                </div>
+
+                <!-- Silo C -->
+                <div class="bg-green-50 p-3 rounded-lg border border-green-200">
+                    <h4 class="font-bold text-green-900 mb-2 text-sm border-b border-green-200 pb-1">Silo C</h4>
+                    <label class="text-xs font-semibold">IB01: <span id="c_ib01_val"></span></label><input type="range" id="c_ib01" min="0" max="100" step="0.5" value="40" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">CSPX: <span id="c_cspx_val"></span></label><input type="range" id="c_cspx" min="0" max="100" step="0.5" value="15" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">XUSE: <span id="c_xuse_val"></span></label><input type="range" id="c_xuse" min="0" max="100" step="0.5" value="10" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">EIMI: <span id="c_eimi_val"></span></label><input type="range" id="c_eimi" min="0" max="100" step="0.5" value="5" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">XSP Margin: <span id="c_xsp_val"></span></label><input type="range" id="c_xsp" min="0" max="100" step="0.5" value="25" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">Cash: <span id="c_cash_val"></span></label><input type="range" id="c_cash" min="0" max="100" step="0.5" value="5" class="w-full mb-1" oninput="updateUI()">
+                    <p class="text-xs text-red-600 font-bold mt-1 h-4" id="c_warning"></p>
+                </div>
+
+                <!-- Silo D -->
+                <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-300">
+                    <h4 class="font-bold text-yellow-900 mb-2 text-sm border-b border-yellow-300 pb-1">Silo D</h4>
+                    <label class="text-xs font-semibold">IB01: <span id="d_ib01_val"></span></label><input type="range" id="d_ib01" min="0" max="100" step="0.5" value="45" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">CSPX: <span id="d_cspx_val"></span></label><input type="range" id="d_cspx" min="0" max="100" step="0.5" value="30" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">XUSE: <span id="d_xuse_val"></span></label><input type="range" id="d_xuse" min="0" max="100" step="0.5" value="15" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">EIMI: <span id="d_eimi_val"></span></label><input type="range" id="d_eimi" min="0" max="100" step="0.5" value="5" class="w-full mb-1" oninput="updateUI()">
+                    <label class="text-xs font-semibold">Cash: <span id="d_cash_val"></span></label><input type="range" id="d_cash" min="0" max="100" step="0.5" value="5" class="w-full mb-1" oninput="updateUI()">
+                    <p class="text-xs text-red-600 font-bold mt-1 h-4" id="d_warning"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-10">
+            <div class="bg-white border rounded-xl p-4 shadow-sm"><div id="bar-chart" class="w-full h-[450px]"></div></div>
+            <div class="bg-white border rounded-xl p-4 shadow-sm"><div id="pie-chart" class="w-full h-[450px]"></div></div>
+        </div>
+
+        <!-- Instrument Matrix -->
+        <div class="mb-10">
+            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">3. The Master Instrument Matrix (Tax, Alpha, & Sharpe Grading)</h3>
+            <div class="overflow-x-auto shadow-sm rounded-lg border">
+                <table class="min-w-full bg-white text-[13px]">
+                    <thead class="bg-slate-800 text-white">
+                        <tr>
+                            <th class="py-3 px-3 text-left">Instrument</th>
+                            <th class="py-3 px-3 text-left">Type</th>
+                            <th class="py-3 px-3 text-left">Risk Profile</th>
+                            <th class="py-3 px-3 text-left">Alpha Potential</th>
+                            <th class="py-3 px-3 text-left">Sharpe / Vol Impact</th>
+                            <th class="py-3 px-3 text-left">Trading Strategy</th>
+                            <th class="py-3 px-3 text-left">Legal Jurisdiction</th>
+                            <th class="py-3 px-3 text-center">CIO Min<br>Alloc. %</th>
+                            <th class="py-3 px-3 text-center">CIO Max<br>Alloc. %</th>
+                            <th class="py-3 px-3 text-center">CIO<br>Grading</th>
+                            <th class="py-3 px-3 text-left w-1/4">Noteworthy Comments</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200" id="matrix-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function fmtCur(val) { return '$' + Math.round(val).toLocaleString(); }
+        
+        const palette = {
+            ib01: '#0284c7', cspx: '#f97316', xuse: '#16a34a', eimi: '#dc2626', 
+            cash: '#64748b', cfd_intl: '#a855f7', xsp: '#22c55e'
+        };
+
+        const instruments =[
+            { inst: "IB01", type: "UCITS ETF", risk: "Risk-Free", alpha: "Zero", sharpe: "High (Zero vol anchor)", strat: "Long Term / Collateral", jur: "Ireland", min: "10%", max: "100%", rec: "Splendid", class: "splendid", comm: "<strong>Irish-domiciled US Treasury fund.</strong><br>Ultimate parking vault. Accumulates 4.5%+ interest tax-free. Liquidated 'Just-In-Time' to cover options losses, avoiding cash drag." },
+            { inst: "XSP Put Spreads", type: "Index Option", risk: "Moderate", alpha: "High (VRP)", sharpe: "High (Smooths equity curve)", strat: "Weekly Income (45 DTE)", jur: "US (Cboe)", min: "0%", max: "25%", rec: "Splendid", class: "splendid", comm: "<strong>Cash-settled S&P 500 options.</strong><br>1,000% safe from IRS. The 25% max margin limit ensures a Black Swan only causes a manageable ~12% estate drawdown." },
+            { inst: "USD Cash", type: "Currency", risk: "Risk-Free", alpha: "Zero", sharpe: "Stabilizer", strat: "Liquidity Buffer", jur: "US (IBKR)", min: "1%", max: "10%", rec: "Great", class: "great", comm: "<strong>Uninvested USD held in IBKR.</strong><br>Keep small to avoid the $10k zero-interest threshold. Serve as a minor buffer while IB01 acts as the primary reserve." },
+            { inst: "CSPX", type: "UCITS ETF", risk: "Moderate (Market)", alpha: "Zero (Beta 1)", sharpe: "Baseline", strat: "Long Term DCA", jur: "Ireland", min: "0%", max: "60%", rec: "Great", class: "great", comm: "<strong>Irish-domiciled S&P 500 equity fund.</strong><br>Shields gains from 40% Estate Tax and 30% Dividend Withholding." },
+            { inst: "XUSE & EIMI", type: "UCITS ETF", risk: "Moderate", alpha: "Moderate", sharpe: "High (Non-US Correl)", strat: "Long Term DCA", jur: "Ireland", min: "0%", max: "40%", rec: "Great", class: "great", comm: "<strong>Irish-domiciled Dev Ex-US and Emerging Market funds.</strong><br>True geographic diversification. Hedges against US Dollar decline." },
+            { inst: "US Tech CFDs", type: "OTC Contract", risk: "Aggressive", alpha: "High (If Skilled)", sharpe: "Negative (Increases volatility)", strat: "Swing Trading", jur: "UK/Offshore", min: "0%", max: "3%", rec: "Good", class: "good", comm: "<strong>Synthetic derivatives tracking physical US tech stocks.</strong><br>0% IRS Estate Tax risk. Subject to overnight margin fees. 3% limit quarantines Minervini trades in Silo B." },
+            { inst: "Intl Stocks", type: "Stock", risk: "Aggressive", alpha: "High", sharpe: "Negative", strat: "Swing Trading", jur: "Europe/Asia", min: "0%", max: "3%", rec: "Neutral", class: "good", comm: "<strong>Direct ownership of non-US physical equities.</strong><br>Safe from IRS. Wider bid/ask spreads and liquidity constraints compared to US Tech." },
+            { inst: "US Corp Bonds", type: "Bond/Stock", risk: "Moderate", alpha: "Negative", sharpe: "Negative", strat: "Income", jur: "US / Ireland", min: "0%", max: "0%", rec: "Bad", class: "bad", comm: "<strong>Debt issued by US corporations.</strong><br>Di-worsification. Crashes during Black Swans. 0% allocation due to NRA tax drag." },
+            { inst: "Physical US Stocks", type: "Stock", risk: "Aggressive", alpha: "High", sharpe: "Baseline", strat: "Swing / Hold", jur: "US (Nasdaq)", min: "0%", max: "0%", rec: "Avoid", class: "avoid", comm: "<strong>Shares traded on US exchanges (e.g., AAPL, SPY).</strong><br>LETHAL. Triggers 40% US Estate Tax and 30% Dividend Withholding." },
+            { inst: "US Stock Options", type: "Option", risk: "Extreme", alpha: "High", sharpe: "Negative", strat: "Speculation", jur: "US (Cboe)", min: "0%", max: "0%", rec: "Avoid", class: "avoid", comm: "<strong>Contracts granting the right to buy/sell physical US property.</strong><br>LETHAL. IRS gray area. Brokers will aggressively freeze the account for months upon death." }
+        ];
+
+        function populateTable() {
+            const tbody = document.getElementById('matrix-body');
+            let html = "";
+            instruments.forEach(i => {
+                html += `<tr class="hover:bg-gray-50 border-b border-gray-100">
+                    <td class="py-3 px-3 font-semibold text-gray-900">${i.inst}</td>
+                    <td class="py-3 px-3">${i.type}</td>
+                    <td class="py-3 px-3">${i.risk}</td>
+                    <td class="py-3 px-3">${i.alpha}</td>
+                    <td class="py-3 px-3 font-medium text-indigo-700">${i.sharpe}</td>
+                    <td class="py-3 px-3">${i.strat}</td>
+                    <td class="py-3 px-3">${i.jur}</td>
+                    <td class="py-3 px-3 font-bold text-center text-gray-500">${i.min}</td>
+                    <td class="py-3 px-3 font-bold text-center">${i.max}</td>
+                    <td class="py-3 px-3 ${i.class} text-center rounded shadow-sm">${i.rec}</td>
+                    <td class="py-3 px-3 text-xs text-gray-700 leading-relaxed">${i.comm}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function updateUI() {
+            const sA = parseFloat(document.getElementById('siloA').value) || 0;
+            const sB = parseFloat(document.getElementById('siloB').value) || 0;
+            const sC = parseFloat(document.getElementById('siloC').value) || 0;
+            const sD = parseFloat(document.getElementById('siloD').value) || 0;
+            const totalEstate = sA + sB + sC + sD;
+
+            // Silo A
+            let a_ib01 = parseFloat(document.getElementById('a_ib01').value); let a_cspx = parseFloat(document.getElementById('a_cspx').value);
+            let a_xuse = parseFloat(document.getElementById('a_xuse').value); let a_eimi = parseFloat(document.getElementById('a_eimi').value); 
+            let a_xsp  = parseFloat(document.getElementById('a_xsp').value);  let a_cash = parseFloat(document.getElementById('a_cash').value);
+            let a_tot = a_ib01 + a_cspx + a_xuse + a_eimi + a_xsp + a_cash;
+            document.getElementById('a_warning').innerText = Math.abs(a_tot - 100) > 0.1 ? `Total: ${a_tot.toFixed(1)}%. Must = 100%!` : "";
+            
+            const amt_A_ib01 = sA * (a_ib01/100); const amt_A_cspx = sA * (a_cspx/100); const amt_A_xuse = sA * (a_xuse/100); 
+            const amt_A_eimi = sA * (a_eimi/100); const amt_A_xsp  = sA * (a_xsp/100);  const amt_A_cash = sA * (a_cash/100);
+            
+            document.getElementById('a_ib01_val').innerText = `${fmtCur(amt_A_ib01)} (${a_ib01.toFixed(1)}%)`;
+            document.getElementById('a_cspx_val').innerText = `${fmtCur(amt_A_cspx)} (${a_cspx.toFixed(1)}%)`;
+            document.getElementById('a_xuse_val').innerText = `${fmtCur(amt_A_xuse)} (${a_xuse.toFixed(1)}%)`;
+            document.getElementById('a_eimi_val').innerText = `${fmtCur(amt_A_eimi)} (${a_eimi.toFixed(1)}%)`;
+            document.getElementById('a_xsp_val').innerText  = `${fmtCur(amt_A_xsp)} (${a_xsp.toFixed(1)}%)`;
+            document.getElementById('a_cash_val').innerText = `${fmtCur(amt_A_cash)} (${a_cash.toFixed(1)}%)`;
+
+            // Silo B
+            let b_ib01 = parseFloat(document.getElementById('b_ib01').value); let b_cash = parseFloat(document.getElementById('b_cash').value); 
+            let b_cfd = parseFloat(document.getElementById('b_cfd').value);   let b_intl = parseFloat(document.getElementById('b_intl').value);
+            let b_tot = b_ib01 + b_cash + b_cfd + b_intl;
+            document.getElementById('b_warning').innerText = Math.abs(b_tot - 100) > 0.1 ? `Total: ${b_tot.toFixed(1)}%. Must = 100%!` : "";
+            
+            const amt_B_ib01 = sB * (b_ib01/100); const amt_B_cash = sB * (b_cash/100);
+            const amt_B_cfd  = sB * (b_cfd/100);  const amt_B_intl = sB * (b_intl/100);
+            const amt_B_act  = amt_B_cfd + amt_B_intl; // Grouped for Pie
+
+            document.getElementById('b_ib01_val').innerText = `${fmtCur(amt_B_ib01)} (${b_ib01.toFixed(1)}%)`;
+            document.getElementById('b_cash_val').innerText = `${fmtCur(amt_B_cash)} (${b_cash.toFixed(1)}%)`;
+            document.getElementById('b_cfd_val').innerText  = `${fmtCur(amt_B_cfd)} (${b_cfd.toFixed(1)}%)`;
+            document.getElementById('b_intl_val').innerText = `${fmtCur(amt_B_intl)} (${b_intl.toFixed(1)}%)`;
+
+            // Silo C
+            let c_ib01 = parseFloat(document.getElementById('c_ib01').value); let c_cspx = parseFloat(document.getElementById('c_cspx').value);
+            let c_xuse = parseFloat(document.getElementById('c_xuse').value); let c_eimi = parseFloat(document.getElementById('c_eimi').value); 
+            let c_xsp  = parseFloat(document.getElementById('c_xsp').value);  let c_cash = parseFloat(document.getElementById('c_cash').value);
+            let c_tot = c_ib01 + c_cspx + c_xuse + c_eimi + c_xsp + c_cash;
+            document.getElementById('c_warning').innerText = Math.abs(c_tot - 100) > 0.1 ? `Total: ${c_tot.toFixed(1)}%. Must = 100%!` : "";
+            
+            const amt_C_ib01 = sC * (c_ib01/100); const amt_C_cspx = sC * (c_cspx/100); const amt_C_xuse = sC * (c_xuse/100); 
+            const amt_C_eimi = sC * (c_eimi/100); const amt_C_xsp  = sC * (c_xsp/100);  const amt_C_cash = sC * (c_cash/100);
+            
+            document.getElementById('c_ib01_val').innerText = `${fmtCur(amt_C_ib01)} (${c_ib01.toFixed(1)}%)`;
+            document.getElementById('c_cspx_val').innerText = `${fmtCur(amt_C_cspx)} (${c_cspx.toFixed(1)}%)`;
+            document.getElementById('c_xuse_val').innerText = `${fmtCur(amt_C_xuse)} (${c_xuse.toFixed(1)}%)`;
+            document.getElementById('c_eimi_val').innerText = `${fmtCur(amt_C_eimi)} (${c_eimi.toFixed(1)}%)`;
+            document.getElementById('c_xsp_val').innerText  = `${fmtCur(amt_C_xsp)} (${c_xsp.toFixed(1)}%)`;
+            document.getElementById('c_cash_val').innerText = `${fmtCur(amt_C_cash)} (${c_cash.toFixed(1)}%)`;
+
+            // Silo D
+            let d_ib01 = parseFloat(document.getElementById('d_ib01').value); let d_cspx = parseFloat(document.getElementById('d_cspx').value);
+            let d_xuse = parseFloat(document.getElementById('d_xuse').value); let d_eimi = parseFloat(document.getElementById('d_eimi').value); 
+            let d_cash = parseFloat(document.getElementById('d_cash').value);
+            let d_tot = d_ib01 + d_cspx + d_xuse + d_eimi + d_cash;
+            document.getElementById('d_warning').innerText = Math.abs(d_tot - 100) > 0.1 ? `Total: ${d_tot.toFixed(1)}%. Must = 100%!` : "";
+            
+            const amt_D_ib01 = sD * (d_ib01/100); const amt_D_cspx = sD * (d_cspx/100); const amt_D_xuse = sD * (d_xuse/100); 
+            const amt_D_eimi = sD * (d_eimi/100); const amt_D_cash = sD * (d_cash/100);
+
+            document.getElementById('d_ib01_val').innerText = `${fmtCur(amt_D_ib01)} (${d_ib01.toFixed(1)}%)`;
+            document.getElementById('d_cspx_val').innerText = `${fmtCur(amt_D_cspx)} (${d_cspx.toFixed(1)}%)`;
+            document.getElementById('d_xuse_val').innerText = `${fmtCur(amt_D_xuse)} (${d_xuse.toFixed(1)}%)`;
+            document.getElementById('d_eimi_val').innerText = `${fmtCur(amt_D_eimi)} (${d_eimi.toFixed(1)}%)`;
+            document.getElementById('d_cash_val').innerText = `${fmtCur(amt_D_cash)} (${d_cash.toFixed(1)}%)`;
+
+            // Totals for Pie
+            let tot_ib01 = amt_A_ib01 + amt_B_ib01 + amt_C_ib01 + amt_D_ib01;
+            let tot_cspx = amt_A_cspx + amt_C_cspx + amt_D_cspx;
+            let tot_xuse = amt_A_xuse + amt_C_xuse + amt_D_xuse;
+            let tot_eimi = amt_A_eimi + amt_C_eimi + amt_D_eimi;
+            let tot_xsp  = amt_A_xsp  + amt_C_xsp;
+            let tot_cash = amt_A_cash + amt_B_cash + amt_C_cash + amt_D_cash;
+
+            // Chart 1: Bar Chart
+            const pctA = ((sA / totalEstate) * 100).toFixed(2);
+            const pctB = ((sB / totalEstate) * 100).toFixed(2);
+            const pctC = ((sC / totalEstate) * 100).toFixed(2);
+            const pctD = ((sD / totalEstate) * 100).toFixed(2);
+
+            const xLabels =['Silo A', 'Silo B', 'Silo C', 'Silo D'];
+            let barData =[
+                { x: xLabels, y:[amt_A_ib01, amt_B_ib01, amt_C_ib01, amt_D_ib01], name: 'IB01', type: 'bar', marker: {color: palette.ib01} },
+                { x: xLabels, y:[amt_A_cspx, 0,          amt_C_cspx, amt_D_cspx], name: 'CSPX', type: 'bar', marker: {color: palette.cspx} },
+                { x: xLabels, y:[amt_A_xuse, 0,          amt_C_xuse, amt_D_xuse], name: 'XUSE', type: 'bar', marker: {color: palette.xuse} },
+                { x: xLabels, y:[amt_A_eimi, 0,          amt_C_eimi, amt_D_eimi], name: 'EIMI', type: 'bar', marker: {color: palette.eimi} },
+                { x: xLabels, y:[0,          amt_B_act,  0,          0         ], name: 'CFDs/Intl', type: 'bar', marker: {color: palette.cfd_intl} },
+                { x: xLabels, y:[amt_A_xsp,  0,          amt_C_xsp,  0         ], name: 'XSP Options', type: 'bar', marker: {color: palette.xsp} },
+                { x: xLabels, y:[amt_A_cash, amt_B_cash, amt_C_cash, amt_D_cash], name: 'Cash', type: 'bar', marker: {color: palette.cash} }
+            ];
+
+            let barLayout = { 
+                barmode: 'stack', 
+                title: 'Capital Deployment per Silo ($ / %)', 
+                margin: {b: 40, t: 80}, 
+                paper_bgcolor: 'rgba(0,0,0,0)', 
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                xaxis: { tickangle: 0 },
+                annotations:[
+                    { x: xLabels[0], y: sA, text: `${(sA/1000).toFixed(0)}k<br>(${pctA}%)`, showarrow: false, yanchor: 'bottom', font: {bold: true, size: 13}},
+                    { x: xLabels[1], y: sB, text: `${(sB/1000).toFixed(0)}k<br>(${pctB}%)`, showarrow: false, yanchor: 'bottom', font: {bold: true, size: 13}},
+                    { x: xLabels[2], y: sC, text: `${(sC/1000).toFixed(0)}k<br>(${pctC}%)`, showarrow: false, yanchor: 'bottom', font: {bold: true, size: 13}},
+                    { x: xLabels[3], y: sD, text: `${(sD/1000).toFixed(0)}k<br>(${pctD}%)`, showarrow: false, yanchor: 'bottom', font: {bold: true, size: 13}}
+                ]
+            };
+            Plotly.react('bar-chart', barData, barLayout);
+
+            // Chart 2: Pie Chart
+            let pieValues =[tot_ib01, tot_cspx, tot_xuse, tot_eimi, amt_B_act, tot_xsp, tot_cash];
+            let fmtPct = (val) => ((val / totalEstate) * 100).toFixed(1) + '%';
+            let pieLabels =[
+                `IB01: ${fmtCur(tot_ib01)} (${fmtPct(tot_ib01)})`, 
+                `CSPX: ${fmtCur(tot_cspx)} (${fmtPct(tot_cspx)})`, 
+                `XUSE: ${fmtCur(tot_xuse)} (${fmtPct(tot_xuse)})`, 
+                `EIMI: ${fmtCur(tot_eimi)} (${fmtPct(tot_eimi)})`, 
+                `Active Swing: ${fmtCur(amt_B_act)} (${fmtPct(amt_B_act)})`, 
+                `XSP Margin: ${fmtCur(tot_xsp)} (${fmtPct(tot_xsp)})`, 
+                `Cash: ${fmtCur(tot_cash)} (${fmtPct(tot_cash)})`
+            ];
+            
+            let pieColors =[palette.ib01, palette.cspx, palette.xuse, palette.eimi, palette.cfd_intl, palette.xsp, palette.cash];
+
+            let pieData =[{
+                values: pieValues,
+                labels: pieLabels,
+                type: 'pie', 
+                textinfo: 'percent', 
+                hole: .4,
+                marker: { colors: pieColors }
+            }];
+            let pieLayout = { title: `Total Estate Exposure ($${totalEstate.toLocaleString()})`, margin: {t: 50, b: 20, l: 0, r: 0}, paper_bgcolor: 'rgba(0,0,0,0)' };
+            Plotly.react('pie-chart', pieData, pieLayout);
+        }
+
+        document.querySelectorAll('input').forEach(i => i.addEventListener('input', updateUI));
+        populateTable();
+        updateUI();
+    </script>
+</body>
+</html>
+"""
+
+# ---------------------------------------------------------
+# 5. Inject the Variables Safely (Bypassing JS Braces)
+# ---------------------------------------------------------
+html_content = html_content.replace("VAR_COLOR_A_IRR", get_color_class(metrics["U23144948"]["irr"]))
+html_content = html_content.replace("VAR_A_IRR", metrics["U23144948"]["irr"])
+html_content = html_content.replace("VAR_COLOR_A_SHARPE", get_color_class(metrics["U23144948"]["sharpe"]))
+html_content = html_content.replace("VAR_A_SHARPE", metrics["U23144948"]["sharpe"])
+
+html_content = html_content.replace("VAR_COLOR_B_IRR", get_color_class(metrics["U23139264"]["irr"]))
+html_content = html_content.replace("VAR_B_IRR", metrics["U23139264"]["irr"])
+html_content = html_content.replace("VAR_COLOR_B_SHARPE", get_color_class(metrics["U23139264"]["sharpe"]))
+html_content = html_content.replace("VAR_B_SHARPE", metrics["U23139264"]["sharpe"])
+
+html_content = html_content.replace("VAR_COLOR_C_IRR", get_color_class(metrics["U23154199"]["irr"]))
+html_content = html_content.replace("VAR_C_IRR", metrics["U23154199"]["irr"])
+html_content = html_content.replace("VAR_COLOR_C_SHARPE", get_color_class(metrics["U23154199"]["sharpe"]))
+html_content = html_content.replace("VAR_C_SHARPE", metrics["U23154199"]["sharpe"])
+
+html_content = html_content.replace("VAR_COLOR_D_IRR", get_color_class(metrics["U25218481"]["irr"]))
+html_content = html_content.replace("VAR_D_IRR", metrics["U25218481"]["irr"])
+html_content = html_content.replace("VAR_COLOR_D_SHARPE", get_color_class(metrics["U25218481"]["sharpe"]))
+html_content = html_content.replace("VAR_D_SHARPE", metrics["U25218481"]["sharpe"])
+
+# ---------------------------------------------------------
+# 6. Save the Output
+# ---------------------------------------------------------
+try:
+    with open(full_file_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print("====================================================================")
+    print(f"SUCCESS! Estate Dashboard v6 created with Data Engine Integration.")
+    print(f"Path: {full_file_path}")
+    print("====================================================================")
+except Exception as e:
+    print(f"Error: {e}")

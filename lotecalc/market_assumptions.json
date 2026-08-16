@@ -1,0 +1,21 @@
+{
+    "hard_costs_usd": {
+        "Ultra": 2000,
+        "High": 1800,
+        "Medium": 1200,
+        "Economical": 1000
+    },
+    "global_rates": {
+        "efficiency_ratio": 0.80,
+        "soft_cost_ratio": 0.12,
+        "itbis_rate": 0.10,
+        "sales_commission": 0.05
+    },
+    "reference_links": [
+        "https://www.remaxrd.com/propiedades/piantini",
+        "https://mrhome.com.do/propiedades",
+        "https://apartamentosrd.com.do/piantini",
+        "https://plusval.com.do/proyectos",
+        "https://www.tucasard.com/buscar"
+    ]
+}

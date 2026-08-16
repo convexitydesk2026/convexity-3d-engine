@@ -1,0 +1,41 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "Sector_ID": "PIAN-01"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-69.935, 18.475],
+            [-69.930, 18.475],
+            [-69.930, 18.470],
+            [-69.935, 18.470],
+            [-69.935, 18.475]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "Sector_ID": "PIAN-02"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-69.940, 18.480],
+            [-69.935, 18.480],
+            [-69.935, 18.475],
+            [-69.940, 18.475],
+            [-69.940, 18.480]
+          ]
+        ]
+      }
+    }
+  ]
+}
