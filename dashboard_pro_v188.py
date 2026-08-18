@@ -1826,6 +1826,52 @@ html_metrics = f"""
 """.replace('\n', '')
 st.markdown(html_metrics, unsafe_allow_html=True)
 
+# --- SECTION 2: SILO PANELS ---
+num_silos = max(1, len(SILO_MAP))
+cols = st.columns(num_silos)
+for idx, acc in enumerate(SILO_MAP.keys()):
+    name, desc, color, _ = SILO_MAP[acc]
+    m = silo_metrics.get(acc, {"nav": 0, "irr": 0, "sharpe": 0, "pnl": 0, "max_dd": 0, "dd_days": 0, "roc": 0})
+    with cols[idx]:
+        st.markdown(f"### {name}")
+        st.caption(desc)
+        st.markdown(f"**Bal: ${m['nav']:,.2f}**")
+        st.markdown(
+            "<div style='font-size: 11px; margin-bottom: 5px;'>"
+            "<span style='color:black; font-weight:bold;'>― Bal</span> | "
+            "<span style='color:#3b82f6; font-weight:bold;'>― SPY</span> | "
+            "<span style='color:#dc2626; font-weight:bold;'>― QQQ</span>"
+            "</div>", 
+            unsafe_allow_html=True
+        )
+        
+        if not silo_dfs[acc].empty:
+            s_chart = pd.merge(silo_dfs[acc][['date', 'cum_return']], bench_df[['date', 'spy_cum', 'qqq_cum']], on='date', how='left').ffill().fillna(0)
+            
+            fig_mini = go.Figure()
+            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['cum_return']*100, mode='lines', line=dict(color='black', width=4), showlegend=False))
+            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['spy_cum']*100, mode='lines', line=dict(color='#3b82f6', width=2), showlegend=False))
+            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['qqq_cum']*100, mode='lines', line=dict(color='#dc2626', width=2), showlegend=False))
+            
+            fig_mini.update_layout(
+                height=300, 
+                margin=dict(l=0, r=0, t=0, b=0), 
+                plot_bgcolor=color, 
+                paper_bgcolor='rgba(0,0,0,0)', 
+                yaxis=dict(zeroline=True, zerolinecolor='black', zerolinewidth=1)
+            )
+            fig_mini.update_xaxes(visible=False)
+            fig_mini.update_yaxes(showticklabels=False)
+            st.plotly_chart(fig_mini, width="stretch")
+        
+        c1, c2 = st.columns(2)
+        c1.write(f"**IRR:** {m['irr']:.2f}%")
+        c2.write(f"**Sharpe:** {m['sharpe']:.2f}")
+        c1.write(f"**P&L:** ${m['pnl']:,.0f}")
+        c2.write(f"**Max DD:** {m['max_dd']:.2f}%")
+        c1.write(f"**DD Days:** {m['dd_days']}")
+        c2.write(f"**ROC:** {m['roc']:.2f}%")
+
 st.divider()
 
 # --- SECTION 1B: ESTATE CALENDARS ---
@@ -2220,53 +2266,7 @@ with st.expander("📊 Expand Institutional Flow Dashboard", expanded=False):
     else:
         st.info("Market Flow Report not found. Click '🌐 Generate Market Flow Report' in the ⚙️ Engine Control sidebar to create it.")
 
-# --- SECTION 2: SILO PANELS ---
-num_silos = max(1, len(SILO_MAP))
-cols = st.columns(num_silos)
-for idx, acc in enumerate(SILO_MAP.keys()):
-    name, desc, color, _ = SILO_MAP[acc]
-    m = silo_metrics.get(acc, {"nav": 0, "irr": 0, "sharpe": 0, "pnl": 0, "max_dd": 0, "dd_days": 0, "roc": 0})
-    with cols[idx]:
-        st.markdown(f"### {name}")
-        st.caption(desc)
-        st.markdown(f"**Bal: ${m['nav']:,.2f}**")
-        st.markdown(
-            "<div style='font-size: 11px; margin-bottom: 5px;'>"
-            "<span style='color:black; font-weight:bold;'>― Bal</span> | "
-            "<span style='color:#3b82f6; font-weight:bold;'>― SPY</span> | "
-            "<span style='color:#dc2626; font-weight:bold;'>― QQQ</span>"
-            "</div>", 
-            unsafe_allow_html=True
-        )
-        
-        if not silo_dfs[acc].empty:
-            s_chart = pd.merge(silo_dfs[acc][['date', 'cum_return']], bench_df[['date', 'spy_cum', 'qqq_cum']], on='date', how='left').ffill().fillna(0)
-            
-            fig_mini = go.Figure()
-            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['cum_return']*100, mode='lines', line=dict(color='black', width=4), showlegend=False))
-            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['spy_cum']*100, mode='lines', line=dict(color='#3b82f6', width=2), showlegend=False))
-            fig_mini.add_trace(go.Scatter(x=s_chart['date'], y=s_chart['qqq_cum']*100, mode='lines', line=dict(color='#dc2626', width=2), showlegend=False))
-            
-            fig_mini.update_layout(
-                height=300, 
-                margin=dict(l=0, r=0, t=0, b=0), 
-                plot_bgcolor=color, 
-                paper_bgcolor='rgba(0,0,0,0)', 
-                yaxis=dict(zeroline=True, zerolinecolor='black', zerolinewidth=1)
-            )
-            fig_mini.update_xaxes(visible=False)
-            fig_mini.update_yaxes(showticklabels=False)
-            st.plotly_chart(fig_mini, width="stretch")
-        
-        c1, c2 = st.columns(2)
-        c1.write(f"**IRR:** {m['irr']:.2f}%")
-        c2.write(f"**Sharpe:** {m['sharpe']:.2f}")
-        c1.write(f"**P&L:** ${m['pnl']:,.0f}")
-        c2.write(f"**Max DD:** {m['max_dd']:.2f}%")
-        c1.write(f"**DD Days:** {m['dd_days']}")
-        c2.write(f"**ROC:** {m['roc']:.2f}%")
 
-st.divider()
 
 # --- SECTION 3: ESTATE CAPITAL BREAKDOWN ---
 st.subheader("1. Estate Capital Breakdown (GAAP, Allocation & Sectors)", anchor="sec1")
