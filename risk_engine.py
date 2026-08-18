@@ -51,18 +51,49 @@ def check_sector_veto(sector_str):
         pass
     return False
     
+import sqlite3
+from estate_env import DB_PATH
+
 def calculate_hwm_budget(global_df, global_metrics_nav):
     """Calculates the High-Water Mark and Tiered Drawdown Multiplier."""
     v7_inception_date = pd.to_datetime('2026-07-17')
     
+    # 1. Determine baseline HWM from historical global_df
     if not global_df.empty:
         v7_df = global_df[global_df['date'] >= v7_inception_date]
         if not v7_df.empty:
-            hwm = v7_df['nav'].cummax().iloc[-1]
+            baseline_hwm = v7_df['nav'].cummax().iloc[-1]
         else:
-            hwm = global_metrics_nav
+            baseline_hwm = global_metrics_nav
     else:
-        hwm = global_metrics_nav
+        baseline_hwm = global_metrics_nav
+
+    # 2. Access the database to get the globally stored HWM
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS estate_hwm (id INTEGER PRIMARY KEY, peak_nav REAL)")
+    
+    c.execute("SELECT peak_nav FROM estate_hwm WHERE id = 1")
+    row = c.fetchone()
+    
+    if row:
+        stored_hwm = row[0]
+    else:
+        stored_hwm = baseline_hwm
+        c.execute("INSERT INTO estate_hwm (id, peak_nav) VALUES (1, ?)", (stored_hwm,))
+        conn.commit()
+
+    # 3. Update the stored HWM if we breached it
+    current_highest = max(baseline_hwm, global_metrics_nav)
+    
+    if current_highest > stored_hwm:
+        stored_hwm = current_highest
+        c.execute("UPDATE estate_hwm SET peak_nav = ? WHERE id = 1", (stored_hwm,))
+        conn.commit()
+        
+    conn.close()
+
+    hwm = stored_hwm
         
     # Calculate Drawdown Percentage from HWM
     dd_pct = ((global_metrics_nav - hwm) / hwm) * 100 if hwm > 0 else 0.0
