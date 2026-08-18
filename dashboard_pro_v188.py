@@ -292,9 +292,8 @@ with st.sidebar:
     st.markdown("### 📌 Institutional Directory")
     st.markdown("""
     - [🔝 Estate Master Dashboard](#top)
-    - [0. Unified Estate Calendar & Action Items](#sec0)
     - [Master Estate Aggregation](#master-agg)
-    - [1B. Institutional Return Heatmap (MoM & YTD)](#sec1b)
+    - [Estate Calendars](#sec1b)
     - [1C. Global Market Flow & Institutional Rotation](#sec1c)
     - [1. Estate Capital Breakdown (GAAP, Allocation & Sectors)](#sec1)
     - [2. Live Portfolio Composition (from TWS)](#sec2)
@@ -1759,182 +1758,6 @@ weather_html = f"""
 """
 exp_top.markdown(weather_html, unsafe_allow_html=True)
 
-# --- SECTION 0: UNIFIED ESTATE CALENDAR ---
-st.subheader("0. Unified Estate Calendar & Action Items", anchor="sec0")
-
-# Build Event Pipeline
-calendar_events = []
-today_date = datetime.date.today()
-
-# 1. Earnings
-if not pos_df.empty:
-    alpha_assets = ['Physical US Stocks', 'International Stocks', 'US Tech CFDs']
-    df_alpha_held = pos_df[pos_df['asset_class'].isin(alpha_assets) & (pos_df['position'] != 0)]
-    for sym in df_alpha_held['symbol'].unique():
-        e_date = get_upcoming_earnings(sym)
-        if e_date:
-            calendar_events.append({'date': e_date, 'type': 'Earn', 'label': f"{sym.split()[0]} Earn", 'color': '#8b5cf6'}) # Purple
-            
-# 2. Options Expirations, 21-DTE Ejects, 45-DTE Rolls
-if not pos_df.empty:
-    open_opts = pos_df[pos_df['sec_type'] == 'OPT'].copy()
-    for _, r in open_opts.iterrows():
-        try:
-            parts = r['symbol'].split('_')
-            base_tckr = parts[0]
-            exp_date = pd.to_datetime(parts[1]).date()
-            ac = r['asset_class']
-            
-            # Expiration
-            calendar_events.append({'date': exp_date, 'type': 'Exp', 'label': f"{base_tckr} Exp", 'color': '#0f172a'}) # Black
-            
-            # 45-DTE Roll (Synthetic Beta)
-            if ac == 'Synthetic Beta':
-                roll_date = exp_date - datetime.timedelta(days=45)
-                calendar_events.append({'date': roll_date, 'type': 'Roll', 'label': f"{base_tckr} Roll", 'color': '#eab308', 'text_color': '#451a03'}) # Yellow
-                
-            # 21-DTE Eject (VRP / CSP) - Exempts Tail Hedges
-            elif ac not in ['Synthetic Beta', 'Tail Hedge']:
-                eject_date = exp_date - datetime.timedelta(days=21)
-                calendar_events.append({'date': eject_date, 'type': 'Eject', 'label': f"{base_tckr} Eject", 'color': '#ef4444'}) # Red
-        except:
-            pass
-            
-# 3. Day 10 Time Stop (Alpha Campaigns)
-try:
-    conn_cal = sqlite3.connect(DB_PATH)
-    df_open_camps = pd.read_sql_query("SELECT symbol, open_date FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Open', 'Pending Settlement ⏳')", conn_cal)
-    conn_cal.close()
-    for _, r in df_open_camps.iterrows():
-        try:
-            o_date = datetime.datetime.strptime(r['open_date'], '%Y-%m-%d').date()
-            day10_date = o_date + datetime.timedelta(days=10)
-            calendar_events.append({'date': day10_date, 'type': 'Day10', 'label': f"{r['symbol']} Day-10", 'color': '#64748b'}) # Gray
-        except:
-            pass
-except:
-    pass
-
-# 4. Macroeconomic Catalysts (FOMC & CPI - 2026 Hardcoded)
-macro_events = [
-    # FOMC Rate Decisions (Wednesdays)
-    {'date': datetime.date(2026, 1, 28), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 3, 18), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 5, 6), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 6, 17), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 7, 29), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 9, 16), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 11, 4), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    {'date': datetime.date(2026, 12, 16), 'label': '🏦 FOMC', 'color': '#3b82f6'},
-    # CPI Data Releases (Mid-month)
-    {'date': datetime.date(2026, 1, 13), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 2, 10), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 3, 11), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 4, 14), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 5, 13), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 6, 10), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 7, 14), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 8, 12), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 9, 15), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 10, 14), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 11, 12), 'label': '📊 CPI', 'color': '#f97316'},
-    {'date': datetime.date(2026, 12, 10), 'label': '📊 CPI', 'color': '#f97316'}
-]
-
-for me in macro_events:
-    calendar_events.append({'date': me['date'], 'type': 'Macro', 'label': me['label'], 'color': me['color']})
-    
-# Sort events chronologically
-calendar_events.sort(key=lambda x: x['date'])
-
-# Find Next Event
-next_event = None
-for ev in calendar_events:
-    if ev['date'] >= today_date:
-        next_event = ev
-        break
-        
-with st.expander("📅 View Unified Estate Calendar & Action Items", expanded=True):
-    if next_event:
-        days_until = (next_event['date'] - today_date).days
-        if days_until <= 3:
-            border_color = "#ef4444" # Red
-            text_color = "#ef4444"
-        elif days_until <= 7:
-            border_color = "#f59e0b" # Yellow
-            text_color = "#d97706"
-        else:
-            border_color = "#10b981" # Green
-            text_color = "#059669"
-            
-        st.markdown(f'''
-        <div style="background: white; border-left: 6px solid {border_color}; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <div>
-                <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Next Operational Hazard</div>
-                <div style="font-size: 18px; font-weight: bold; color: #0f172a; margin-top: 4px;">{next_event['label']}</div>
-            </div>
-            <div style="text-align: right;">
-                <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Date</div>
-                <div style="font-size: 18px; font-weight: bold; color: {text_color}; margin-top: 4px;">{next_event['date'].strftime('%b %d')} ({days_until} Days)</div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
-    else:
-        st.info("No upcoming operational hazards detected.")
-        
-    # Generate 5-Week Rolling Grid
-    # Find the Sunday of the current week
-    idx = (today_date.weekday() + 1) % 7 # Sunday is 0
-    start_date = today_date - datetime.timedelta(days=idx)
-    
-    cal_html = """
-    <style>
-        .cal-grid-u { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #cbd5e1; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
-        .cal-header-u { background: #1e293b; color: white; text-align: center; padding: 10px; font-weight: bold; font-size: 14px; }
-        .cal-cell-u { background: white; min-height: 100px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
-        .cal-cell-today { border: 2px solid #10b981; background: #f0fdf4; }
-        .cal-date-u { font-size: 14px; font-weight: bold; color: #64748b; margin-bottom: 4px; }
-        .cal-date-today { color: #059669; }
-        .event-pill-u { font-size: 11px; padding: 3px 6px; border-radius: 4px; font-weight: bold; color: white; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    </style>
-    <div class="cal-grid-u">
-        <div class="cal-header-u">Sun</div><div class="cal-header-u">Mon</div><div class="cal-header-u">Tue</div><div class="cal-header-u">Wed</div><div class="cal-header-u">Thu</div><div class="cal-header-u">Fri</div><div class="cal-header-u">Sat</div>
-    """
-    
-    for i in range(35): # 5 weeks
-        current_cell_date = start_date + datetime.timedelta(days=i)
-        is_today = current_cell_date == today_date
-        cell_class = "cal-cell-u cal-cell-today" if is_today else "cal-cell-u"
-        date_class = "cal-date-u cal-date-today" if is_today else "cal-date-u"
-        
-        # Get events for this day
-        day_events = [ev for ev in calendar_events if ev['date'] == current_cell_date]
-        
-        # Deduplicate labels for the same day to prevent clutter
-        seen_labels = set()
-        unique_day_events = []
-        for ev in day_events:
-            if ev['label'] not in seen_labels:
-                unique_day_events.append(ev)
-                seen_labels.add(ev['label'])
-        
-        pills_html = ""
-        for ev in unique_day_events:
-            txt_color = ev.get('text_color', 'white')
-            pills_html += f'<div class="event-pill-u" style="background: {ev["color"]}; color: {txt_color};" title="{ev["label"]}">{ev["label"]}</div>'
-            
-        # Format date: show month name on the 1st or the very first cell
-        if current_cell_date.day == 1 or i == 0:
-            date_str = current_cell_date.strftime('%b %d')
-        else:
-            date_str = str(current_cell_date.day)
-            
-        cal_html += f'<div class="{cell_class}"><div class="{date_class}">{date_str}</div>{pills_html}</div>'
-        
-    cal_html += "</div>"
-    st.markdown(cal_html, unsafe_allow_html=True)
-
-st.divider()
 
 # SECTION 1: MASTER AGGREGATION
 html_metrics = f"""
@@ -2005,8 +1828,8 @@ st.markdown(html_metrics, unsafe_allow_html=True)
 
 st.divider()
 
-# --- SECTION 1B: INSTITUTIONAL RETURN HEATMAP ---
-st.subheader("1B. Institutional Return Heatmap (MoM & YTD)", anchor="sec1b")
+# --- SECTION 1B: ESTATE CALENDARS ---
+st.subheader("Estate Calendars", anchor="sec1b")
 exp_sec1b = st.expander("🔥 View Institutional Return Heatmap", expanded=False)
 if not global_df.empty:
     df_h = global_df.copy()
@@ -2162,6 +1985,178 @@ if not global_df.empty:
                 
             cal_html += "</div></div>"
             st.markdown(cal_html, unsafe_allow_html=True)
+
+# Build Event Pipeline
+calendar_events = []
+today_date = datetime.date.today()
+
+# 1. Earnings
+if not pos_df.empty:
+    alpha_assets = ['Physical US Stocks', 'International Stocks', 'US Tech CFDs']
+    df_alpha_held = pos_df[pos_df['asset_class'].isin(alpha_assets) & (pos_df['position'] != 0)]
+    for sym in df_alpha_held['symbol'].unique():
+        e_date = get_upcoming_earnings(sym)
+        if e_date:
+            calendar_events.append({'date': e_date, 'type': 'Earn', 'label': f"{sym.split()[0]} Earn", 'color': '#8b5cf6'}) # Purple
+            
+# 2. Options Expirations, 21-DTE Ejects, 45-DTE Rolls
+if not pos_df.empty:
+    open_opts = pos_df[pos_df['sec_type'] == 'OPT'].copy()
+    for _, r in open_opts.iterrows():
+        try:
+            parts = r['symbol'].split('_')
+            base_tckr = parts[0]
+            exp_date = pd.to_datetime(parts[1]).date()
+            ac = r['asset_class']
+            
+            # Expiration
+            calendar_events.append({'date': exp_date, 'type': 'Exp', 'label': f"{base_tckr} Exp", 'color': '#0f172a'}) # Black
+            
+            # 45-DTE Roll (Synthetic Beta)
+            if ac == 'Synthetic Beta':
+                roll_date = exp_date - datetime.timedelta(days=45)
+                calendar_events.append({'date': roll_date, 'type': 'Roll', 'label': f"{base_tckr} Roll", 'color': '#eab308', 'text_color': '#451a03'}) # Yellow
+                
+            # 21-DTE Eject (VRP / CSP) - Exempts Tail Hedges
+            elif ac not in ['Synthetic Beta', 'Tail Hedge']:
+                eject_date = exp_date - datetime.timedelta(days=21)
+                calendar_events.append({'date': eject_date, 'type': 'Eject', 'label': f"{base_tckr} Eject", 'color': '#ef4444'}) # Red
+        except:
+            pass
+            
+# 3. Day 10 Time Stop (Alpha Campaigns)
+try:
+    conn_cal = sqlite3.connect(DB_PATH)
+    df_open_camps = pd.read_sql_query("SELECT symbol, open_date FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Open', 'Pending Settlement ⏳')", conn_cal)
+    conn_cal.close()
+    for _, r in df_open_camps.iterrows():
+        try:
+            o_date = datetime.datetime.strptime(r['open_date'], '%Y-%m-%d').date()
+            day10_date = o_date + datetime.timedelta(days=10)
+            calendar_events.append({'date': day10_date, 'type': 'Day10', 'label': f"{r['symbol']} Day-10", 'color': '#64748b'}) # Gray
+        except:
+            pass
+except:
+    pass
+
+# 4. Macroeconomic Catalysts (FOMC & CPI - 2026 Hardcoded)
+macro_events = [
+    # FOMC Rate Decisions (Wednesdays)
+    {'date': datetime.date(2026, 1, 28), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 3, 18), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 5, 6), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 6, 17), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 7, 29), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 9, 16), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 11, 4), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    {'date': datetime.date(2026, 12, 16), 'label': '🏦 FOMC', 'color': '#3b82f6'},
+    # CPI Data Releases (Mid-month)
+    {'date': datetime.date(2026, 1, 13), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 2, 10), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 3, 11), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 4, 14), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 5, 13), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 6, 10), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 7, 14), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 8, 12), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 9, 15), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 10, 14), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 11, 12), 'label': '📊 CPI', 'color': '#f97316'},
+    {'date': datetime.date(2026, 12, 10), 'label': '📊 CPI', 'color': '#f97316'}
+]
+
+for me in macro_events:
+    calendar_events.append({'date': me['date'], 'type': 'Macro', 'label': me['label'], 'color': me['color']})
+    
+# Sort events chronologically
+calendar_events.sort(key=lambda x: x['date'])
+
+# Find Next Event
+next_event = None
+for ev in calendar_events:
+    if ev['date'] >= today_date:
+        next_event = ev
+        break
+        
+with st.expander("📅 View Unified Estate Calendar & Action Items", expanded=False):
+    if next_event:
+        days_until = (next_event['date'] - today_date).days
+        if days_until <= 3:
+            border_color = "#ef4444" # Red
+            text_color = "#ef4444"
+        elif days_until <= 7:
+            border_color = "#f59e0b" # Yellow
+            text_color = "#d97706"
+        else:
+            border_color = "#10b981" # Green
+            text_color = "#059669"
+            
+        st.markdown(f'''
+        <div style="background: white; border-left: 6px solid {border_color}; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div>
+                <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Next Operational Hazard</div>
+                <div style="font-size: 18px; font-weight: bold; color: #0f172a; margin-top: 4px;">{next_event['label']}</div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Date</div>
+                <div style="font-size: 18px; font-weight: bold; color: {text_color}; margin-top: 4px;">{next_event['date'].strftime('%b %d')} ({days_until} Days)</div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.info("No upcoming operational hazards detected.")
+        
+    # Generate 5-Week Rolling Grid
+    # Find the Sunday of the current week
+    idx = (today_date.weekday() + 1) % 7 # Sunday is 0
+    start_date = today_date - datetime.timedelta(days=idx)
+    
+    cal_html = """
+    <style>
+        .cal-grid-u { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #cbd5e1; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
+        .cal-header-u { background: #1e293b; color: white; text-align: center; padding: 10px; font-weight: bold; font-size: 14px; }
+        .cal-cell-u { background: white; min-height: 100px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+        .cal-cell-today { border: 2px solid #10b981; background: #f0fdf4; }
+        .cal-date-u { font-size: 14px; font-weight: bold; color: #64748b; margin-bottom: 4px; }
+        .cal-date-today { color: #059669; }
+        .event-pill-u { font-size: 11px; padding: 3px 6px; border-radius: 4px; font-weight: bold; color: white; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    </style>
+    <div class="cal-grid-u">
+        <div class="cal-header-u">Sun</div><div class="cal-header-u">Mon</div><div class="cal-header-u">Tue</div><div class="cal-header-u">Wed</div><div class="cal-header-u">Thu</div><div class="cal-header-u">Fri</div><div class="cal-header-u">Sat</div>
+    """
+    
+    for i in range(35): # 5 weeks
+        current_cell_date = start_date + datetime.timedelta(days=i)
+        is_today = current_cell_date == today_date
+        cell_class = "cal-cell-u cal-cell-today" if is_today else "cal-cell-u"
+        date_class = "cal-date-u cal-date-today" if is_today else "cal-date-u"
+        
+        # Get events for this day
+        day_events = [ev for ev in calendar_events if ev['date'] == current_cell_date]
+        
+        # Deduplicate labels for the same day to prevent clutter
+        seen_labels = set()
+        unique_day_events = []
+        for ev in day_events:
+            if ev['label'] not in seen_labels:
+                unique_day_events.append(ev)
+                seen_labels.add(ev['label'])
+        
+        pills_html = ""
+        for ev in unique_day_events:
+            txt_color = ev.get('text_color', 'white')
+            pills_html += f'<div class="event-pill-u" style="background: {ev["color"]}; color: {txt_color};" title="{ev["label"]}">{ev["label"]}</div>'
+            
+        # Format date: show month name on the 1st or the very first cell
+        if current_cell_date.day == 1 or i == 0:
+            date_str = current_cell_date.strftime('%b %d')
+        else:
+            date_str = str(current_cell_date.day)
+            
+        cal_html += f'<div class="{cell_class}"><div class="{date_class}">{date_str}</div>{pills_html}</div>'
+        
+    cal_html += "</div>"
+    st.markdown(cal_html, unsafe_allow_html=True)
 
 st.divider()
 
