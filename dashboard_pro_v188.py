@@ -305,7 +305,6 @@ with st.sidebar:
     - [8. Estate Montecarlo PnL Simulation - Projections vs History](#sec8)
     - [9A. The Master Options Matrix & CFO Briefing](#sec9a)
     - [9B. The Options Performance Ledger & Topography Engine](#sec9b)
-    - [10. Accountability Journal (Alpha Campaigns)](#sec10)
     - [100. Project Management & Sprint Tracker](#sec100)
     - [101. Publisher Export Pipeline (Ghost.org)](#sec101)
     """)
@@ -2836,7 +2835,942 @@ if not df_alpha.empty:
 
 else:
     exp_sec3b.info("No physical equities currently held in the Estate.")
-st.divider()
+
+exp_sec10 = st.expander("📓 View Accountability Journal & Pipeline", expanded=False)
+
+# FIX: Added timeout and WAL mode to the Journal connection
+conn_journal = sqlite3.connect(DB_PATH, timeout=15)
+conn_journal.execute("PRAGMA journal_mode=WAL;")
+cj = conn_journal.cursor()
+
+cj.execute("""
+    CREATE TABLE IF NOT EXISTS tag_glossary (
+        tag TEXT PRIMARY KEY,
+        description TEXT
+    )
+""")
+
+cj.execute("""
+    CREATE TABLE IF NOT EXISTS alpha_campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        type TEXT,
+        status TEXT DEFAULT 'Open 🟢',
+        open_date TEXT,
+        close_date TEXT,
+        regime_in TEXT,
+        sector TEXT,
+        industry TEXT,
+        sma_20 REAL,
+        sma_50 REAL,
+        sma_200 REAL,
+        entry_price REAL,
+        initial_stop REAL DEFAULT 0.0,
+        tags TEXT DEFAULT '',
+        thesis TEXT DEFAULT '',
+        days_active INTEGER DEFAULT 0,
+        total_pnl REAL DEFAULT 0.0,
+        r_multiple REAL DEFAULT 0.0,
+        grade TEXT DEFAULT ''
+    )
+""")
+
+# Safely add new columns for the Staging Pipeline if they don't exist
+try:
+    cj.execute("ALTER TABLE alpha_campaigns ADD COLUMN target_entry REAL DEFAULT 0.0")
+    cj.execute("ALTER TABLE alpha_campaigns ADD COLUMN planned_stop REAL DEFAULT 0.0")
+    cj.execute("ALTER TABLE alpha_campaigns ADD COLUMN tranche_added INTEGER DEFAULT 0")
+except sqlite3.OperationalError:
+    pass
+
+conn_journal.commit()
+
+# Dynamic Days Active Updater (Updates Open and Pending campaigns)
+cj.execute("SELECT id, open_date FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Pending Settlement ⏳')")
+for c_id, o_date in cj.fetchall():
+    try:
+        d_act = (datetime.date.today() - datetime.date.fromisoformat(o_date)).days
+        cj.execute("UPDATE alpha_campaigns SET days_active=? WHERE id=?", (d_act, c_id))
+    except Exception: pass
+conn_journal.commit()
+
+col_scan, col_close = exp_sec10.columns(2)
+
+with col_scan:
+    if exp_sec10.button("🔍 Scan for Undocumented Campaigns", width="stretch"):
+        alpha_assets = ['Physical US Stocks', 'International Stocks', 'US Tech CFDs', 'Gold', 'Crypto', 'Active Swing']
+        open_positions = pos_df[(pos_df['asset_class'].isin(alpha_assets)) & (pos_df['position'] != 0)]
+        
+        new_campaigns = 0
+        for _, r in open_positions.iterrows():
+            sym = r['symbol']
+            cj.execute("SELECT id FROM alpha_campaigns WHERE symbol=? AND status IN ('Open 🟢', 'Open')", (sym,))
+            if not cj.fetchone():
+                trade_type = "Long" if r['position'] > 0 else "Short"
+                sec, ind = get_sector_and_industry(sym, r['asset_class'])
+                s20, s50, s200 = get_stock_smas_v2(sym)
+                curr = r['currency'] if pd.notna(r.get('currency')) else 'USD'
+                fx = get_fx_rate(curr)
+                entry_usd = r['avg_cost'] if fx == 1.0 else (r['avg_cost'] / fx)  # Normalizing to local entry just in case
+                
+                live_alpha_gear_jnl = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
+                regime_in_str = f"Gear {live_alpha_gear_jnl}"
+                
+                cj.execute("""
+                    INSERT INTO alpha_campaigns 
+                    (symbol, type, status, open_date, regime_in, sector, industry, sma_20, sma_50, sma_200, entry_price)
+                    VALUES (?, ?, 'Open', ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (sym, trade_type, datetime.date.today().isoformat(), regime_in_str, sec, ind, s20, s50, s200, entry_usd))
+                
+                conn_journal.commit()
+                new_campaigns += 1
+                
+        if new_campaigns > 0:
+            exp_sec10.success(f"Generated {new_campaigns} new campaigns! Please input your Initial Stops and Thesis below.")
+            st.rerun()
+        else:
+            exp_sec10.info("No undocumented campaigns found in current portfolio.")
+
+with col_close:
+    if exp_sec10.button("🏁 Check for Closed Campaigns", width="stretch"):
+        # Fetch both Open and Pending campaigns to process T+1 Settlement Delay
+        cj.execute("SELECT id, symbol, open_date, entry_price, initial_stop, status FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Open', 'Pending Settlement ⏳', 'Pending Settlement')")
+        camps_to_check = cj.fetchall()
+        
+        closed_count = 0
+        pending_count = 0
+        reopened_count = 0
+        
+        for camp in camps_to_check:
+            c_id, sym, o_date, entry, stop, current_status = camp
+            
+            # Global Share Count Check (Aggregates across all silos)
+            sym_positions = pos_df[pos_df['symbol'] == sym]
+            global_shares = sym_positions['position'].sum() if not sym_positions.empty else 0.0
+
+            if abs(global_shares) < 0.001:
+                close_dt = datetime.date.today().isoformat()
+                
+                # 1. PnL Check (Strictly T+1 Clearinghouse Data)
+                try:
+                    cj.execute("SELECT SUM(realized_pnl) FROM champion_closed_trades WHERE symbol=? AND close_date >= ?", (sym, o_date))
+                    pnl_res = cj.fetchone()[0]
+                    total_pnl = pnl_res if pnl_res else 0.0
+                except Exception:
+                    total_pnl = 0.0
+                
+                # 2. T+1 Settlement Delay Logic
+                if abs(total_pnl) < 0.01:
+                    # If PnL is 0.00, the Flex Query hasn't hit yet. Send to Pending.
+                    if current_status != 'Pending Settlement ⏳':
+                        cj.execute("UPDATE alpha_campaigns SET status='Pending Settlement ⏳' WHERE id=?", (c_id,))
+                        pending_count += 1
+
+                else:
+                    # The official PnL has arrived. Grade and Lock permanently.
+                    # Global Share Count Aggregation Fix (Sum across silos per date, then Max)
+                    # v118: Added 30-day lookback to catch peak size for campaigns logged late
+                    cj.execute("""
+                        SELECT MAX(daily_total) FROM (
+                            SELECT SUM(ABS(position)) as daily_total 
+                            FROM daily_positions 
+                            WHERE symbol=? AND date >= date(?, '-30 days') 
+                            GROUP BY date
+                        )
+                    """, (sym, o_date))
+                    max_sh_res = cj.fetchone()[0]
+                    max_shares = max_sh_res if max_sh_res else 1.0
+                    initial_risk = abs(entry - stop) * max_shares
+                    
+                    if initial_risk > 0 and stop > 0:
+                        r_mult = total_pnl / initial_risk
+                        if r_mult >= 3.0: grade = "A+ (Elite Edge) 🏆"
+                        elif r_mult >= 1.0: grade = "B (Solid Exec) 🟢"
+                        elif r_mult >= -0.5: grade = "C (Scratch) 🟡"
+                        elif r_mult >= -1.2: grade = "D (Pro Loss) 🛡️"
+                        else: grade = "F (Discipline) 🚨"
+                    else:
+                        r_mult = 0.0
+                        grade = "Ungraded (No Stop)"
+                        
+                    cj.execute("""
+                        UPDATE alpha_campaigns 
+                        SET status='Closed', close_date=?, total_pnl=?, r_multiple=?, grade=?
+                        WHERE id=?
+                    """, (close_dt, total_pnl, r_mult, grade, c_id))
+                    closed_count += 1
+            
+            elif current_status == 'Pending Settlement ⏳':
+                # The user bought back into the position before settlement occurred. Reopen the campaign.
+                cj.execute("UPDATE alpha_campaigns SET status='Open' WHERE id=?", (c_id,))
+                reopened_count += 1
+                
+        conn_journal.commit()
+        
+        msg_parts = []
+        if closed_count > 0: msg_parts.append(f"Graded & Locked {closed_count} campaigns.")
+        if pending_count > 0: msg_parts.append(f"Sent {pending_count} campaigns to T+1 Pending Settlement.")
+        if reopened_count > 0: msg_parts.append(f"Reopened {reopened_count} campaigns due to new share acquisitions.")
+        
+        if msg_parts:
+            exp_sec10.success(" ".join(msg_parts))
+            st.rerun()
+        else:
+            exp_sec10.info("No actionable changes detected in open campaigns today.")
+
+# -------------------------------------------------------------------------
+# STRATEGY TAG GLOSSARY & SOPS
+# -------------------------------------------------------------------------
+
+# 2. Extract and Upsert all Unique Tags into Glossary
+core_tags = {"13F": "", "VCP": "Volatility Contraction Pattern", "ALCC": "", "Q-EP": "", "M-FLOW": "", "ATR-Ext": ""}
+for t, desc in core_tags.items():
+    cj.execute("INSERT OR IGNORE INTO tag_glossary (tag, description) VALUES (?, ?)", (t, desc))
+    
+cj.execute("SELECT tags FROM alpha_campaigns WHERE tags IS NOT NULL AND tags != ''")
+db_tags_rows = cj.fetchall()
+for row in db_tags_rows:
+    raw_tag_str = str(row[0])
+    if raw_tag_str:
+        split_tags = [t.strip() for t in raw_tag_str.split(',')]
+        for t in split_tags:
+            if t:
+                cj.execute("INSERT OR IGNORE INTO tag_glossary (tag, description) VALUES (?, ?)", (t, ""))
+conn_journal.commit()
+
+# Fetch absolute list of all tags for the dropdowns
+all_tags_list = pd.read_sql_query("SELECT tag FROM tag_glossary ORDER BY tag ASC", conn_journal)['tag'].tolist()
+
+with exp_sec10.expander("🏷️ Global Campaign Tag Editor", expanded=False):
+    df_all_camps = pd.read_sql_query("SELECT id, symbol, status, tags FROM alpha_campaigns ORDER BY status, symbol", conn_journal)
+    if not df_all_camps.empty:
+        df_all_camps['display_name'] = df_all_camps['symbol'] + " (" + df_all_camps['status'] + ")"
+        
+        c_camp, c_tags, c_btn = st.columns([2, 3, 1])
+        with c_camp:
+            selected_camp_name = st.selectbox("Select Campaign to Edit:", df_all_camps['display_name'].tolist())
+        
+        if selected_camp_name:
+            selected_row = df_all_camps[df_all_camps['display_name'] == selected_camp_name].iloc[0]
+            camp_id = int(selected_row['id'])
+            curr_tags_str = selected_row['tags']
+            
+            # Parse current tags and ensure they exist in the glossary to prevent UI crashes
+            curr_tags_list = [t.strip() for t in str(curr_tags_str).split(',')] if curr_tags_str else []
+            valid_curr_tags = [t for t in curr_tags_list if t in all_tags_list]
+            
+            with c_tags:
+                new_tags_list = st.multiselect("Modify Tags:", options=all_tags_list, default=valid_curr_tags)
+                
+            with c_btn:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("💾 Save Tags", use_container_width=True):
+                    new_tags_str = ", ".join(new_tags_list)
+                    cj.execute("UPDATE alpha_campaigns SET tags=? WHERE id=?", (new_tags_str, camp_id))
+                    conn_journal.commit()
+                    st.rerun()
+    else:
+        exp_sec10.info("No campaigns available.")
+
+with exp_sec10.expander("📖 Strategy Tag Glossary & SOPs", expanded=False):
+    
+    # --- NEW: Tag Creation Tool ---
+    c_new_tag, c_add_btn = st.columns([4, 1])
+    with c_new_tag:
+        new_tag_val = st.text_input("Create New Tag", placeholder="Type new tag here to add it to your master list...", label_visibility="collapsed")
+    with c_add_btn:
+        if st.button("➕ Add Tag", width="stretch"):
+            if new_tag_val:
+                clean_tag = new_tag_val.replace(',', '').strip()
+                if clean_tag:
+                    cj.execute("INSERT OR IGNORE INTO tag_glossary (tag, description) VALUES (?, ?)", (clean_tag, ""))
+                    conn_journal.commit()
+                    st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    df_glossary = pd.read_sql_query("SELECT tag, description FROM tag_glossary ORDER BY tag ASC", conn_journal)
+    
+    def commit_glossary_edits():
+        state = st.session_state["glossary_editor"]
+        edits = state.get("edited_rows", {})
+        deletions = state.get("deleted_rows", [])
+        
+        if not edits and not deletions: return
+        
+        conn_gl = sqlite3.connect(DB_PATH, timeout=15)
+        conn_gl.execute("PRAGMA journal_mode=WAL;")
+        c_gl = conn_gl.cursor()
+        
+        # Handle Description Edits
+        for row_idx_str, row_edits in edits.items():
+            idx = int(row_idx_str)
+            target_tag = df_glossary.at[idx, 'tag']
+            new_desc = str(row_edits.get("description", ""))
+            c_gl.execute("UPDATE tag_glossary SET description=? WHERE tag=?", (new_desc, target_tag))
+            
+        # Handle Tag Deletions
+        for idx in deletions:
+            target_tag = df_glossary.at[idx, 'tag']
+            c_gl.execute("DELETE FROM tag_glossary WHERE tag=?", (target_tag,))
+            
+        conn_gl.commit()
+        conn_gl.close()
+    
+    st.data_editor(
+        df_glossary,
+        column_config={
+            "tag": st.column_config.TextColumn("Tag (Master List)", disabled=True),
+            "description": st.column_config.TextColumn("Description / Rules (Editable)")
+        },
+        hide_index=True,
+        width="stretch",
+        num_rows="dynamic",
+        key="glossary_editor",
+        on_change=commit_glossary_edits
+    )
+
+# --- TRADINGVIEW SCREENER INGESTION ---
+tv_csv_path = os.path.join(TARGET_DIR, "TV_Screener.csv")
+if os.path.exists(tv_csv_path):
+    with exp_sec10.expander("📈 TradingView Screener Ingestion", expanded=True):
+        try:
+            tv_df = pd.read_csv(tv_csv_path)
+            # Dynamically find the ticker column (TV sometimes uses 'Ticker' or 'Symbol')
+            ticker_col = next((c for c in tv_df.columns if 'ticker' in c.lower() or 'symbol' in c.lower()), None)
+            
+            if ticker_col:
+                st.markdown("<div style='font-size: 14px; color: #334155; margin-bottom: 10px;'><b>New Screener Detected!</b> Check the boxes below to instantly stage candidates.</div>", unsafe_allow_html=True)
+                
+                if 'Stage' not in tv_df.columns:
+                    tv_df.insert(0, 'Stage', False)
+                    
+                edited_tv = st.data_editor(
+                    tv_df,
+                    hide_index=True,
+                    column_config={"Stage": st.column_config.CheckboxColumn("Stage", default=False)},
+                    width="stretch",
+                    key="tv_screener_editor"
+                )
+                
+                c_imp, c_del = st.columns([3, 1])
+                with c_imp:
+                    if st.button("🔭 Send Selected to Stalk List", width="stretch"):
+                        to_import = edited_tv[edited_tv['Stage'] == True]
+                        if not to_import.empty:
+                            conn_tv = sqlite3.connect(DB_PATH, timeout=15)
+                            conn_tv.execute("PRAGMA journal_mode=WAL;")
+                            c_tv = conn_tv.cursor()
+                            added_count = 0
+                            skipped_count = 0
+                            
+                            for _, row in to_import.iterrows():
+                                sym = str(row[ticker_col]).strip().upper()
+                                # Prevent duplicates if already active in the pipeline
+                                c_tv.execute("SELECT id FROM alpha_campaigns WHERE symbol=? AND status IN ('Stalking 🔭', 'Waiting ⏳', 'Armed 🎯', 'Open 🟢', 'Open', 'Pending Settlement ⏳')", (sym,))
+                                if not c_tv.fetchone():
+                                    c_tv.execute("INSERT INTO alpha_campaigns (symbol, type, status, thesis) VALUES (?, 'Long', 'Stalking 🔭', 'Imported from TradingView Screener.')", (sym,))
+                                    added_count += 1
+                                else:
+                                    skipped_count += 1
+                                    
+                            conn_tv.commit()
+                            conn_tv.close()
+                            
+                            if added_count > 0:
+                                st.success(f"Successfully staged {added_count} new candidates! ({skipped_count} skipped as duplicates).")
+                            else:
+                                st.warning(f"All selected candidates are already active in the pipeline.")
+                            st.rerun()
+                        else:
+                            st.warning("No tickers selected.")
+                with c_del:
+                    if st.button("🗑️ Delete CSV", width="stretch"):
+                        os.remove(tv_csv_path)
+                        st.rerun()
+            else:
+                st.error("Could not find a 'Ticker' or 'Symbol' column in the CSV. Please check your TradingView export settings.")
+        except Exception as e:
+            st.error(f"Error reading TV_Screener.csv: {e}")
+
+# --- NEW: PRE-TRADE STAGING AREA ---
+with exp_sec10.expander("🔭 View Pre-Trade Staging Area (Pipeline)", expanded=False):
+    
+    # Add New Stalking Candidate UI
+    with st.form("add_stalk_form", clear_on_submit=True):
+        c_sym, c_dir, c_tags, c_thes, c_add = st.columns([1, 1, 2, 3, 1])
+        with c_sym: new_stalk_sym = st.text_input("Ticker", placeholder="e.g. MU").upper()
+        with c_dir: new_stalk_dir = st.selectbox("Direction", options=["Long", "Short"])
+        with c_tags: new_stalk_tags = st.multiselect("Tags", options=all_tags_list)
+        with c_thes: new_stalk_thes = st.text_input("Thesis", placeholder="Why are we stalking this?")
+        with c_add: 
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.form_submit_button("Add to Stalk List", use_container_width=True):
+                if new_stalk_sym:
+                    tags_str = ", ".join(new_stalk_tags)
+                    cj.execute("INSERT INTO alpha_campaigns (symbol, type, status, tags, thesis) VALUES (?, ?, 'Stalking 🔭', ?, ?)", (new_stalk_sym, new_stalk_dir, tags_str, new_stalk_thes))
+                    conn_journal.commit()
+                    st.rerun()
+
+    if "staging_key" not in st.session_state:
+        st.session_state["staging_key"] = 0
+
+    df_staging = pd.read_sql_query("SELECT id, symbol, type, status, target_entry, planned_stop, tags, thesis FROM alpha_campaigns WHERE status IN ('Stalking 🔭', 'Waiting ⏳', 'Armed 🎯')", conn_journal)
+    
+    if not df_staging.empty:
+        # Earnings Blackout & Risk Math
+        earn_flags = []
+        planned_risk_total = 0.0
+        
+        for idx, row in df_staging.iterrows():
+            sym = row['symbol']
+            e_date = get_upcoming_earnings(sym)
+            if e_date:
+                days_to_e = (e_date - datetime.date.today()).days
+                if 0 <= days_to_e <= 5:
+                    earn_flags.append(f"⚠️ {e_date.strftime('%b %d')} ({days_to_e}d)")
+                else:
+                    earn_flags.append(f"{e_date.strftime('%b %d')} ({days_to_e}d)")
+            else:
+                earn_flags.append("N/A")
+                
+            if row['status'] in ['Waiting ⏳', 'Armed 🎯']:
+                # Assuming 1R sizing per trade (0.10% of Global NAV)
+                planned_risk_total += (global_metrics['nav'] * 0.001) 
+                    
+        df_staging.insert(2, 'Earnings', earn_flags)
+        
+        # Pre-Flight Risk Budget Check
+        regime_allowance = 0.0
+        live_alpha_gear_stg = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
+        
+        if live_alpha_gear_stg >= 3: regime_allowance = global_metrics['nav'] * 0.05 # 5% TOR
+        elif live_alpha_gear_stg in [1, 2]: regime_allowance = global_metrics['nav'] * 0.03 # 3% TOR
+        
+        if planned_risk_total > 0:
+            risk_color = "#16a34a" if planned_risk_total <= regime_allowance else "#dc2626"
+            st.markdown(f"<div style='font-size:13px; padding:8px; background-color:#f8fafc; border:1px solid #cbd5e1; border-radius:4px; margin-bottom:10px;'><b>Pre-Flight Risk Budget:</b> You have <b>${planned_risk_total:,.0f}</b> of risk staged in Waiting/Armed. (Regime Allowance: ${regime_allowance:,.0f}) <span style='color:{risk_color};'>{'✅ Safe' if planned_risk_total <= regime_allowance else '🚨 EXCEEDS MACRO LIMIT'}</span></div>", unsafe_allow_html=True)
+
+        def commit_staging_edits():
+            current_key = f"staging_editor_{st.session_state['staging_key']}"
+            state = st.session_state.get(current_key, {})
+            edits = state.get("edited_rows", {})
+            deletions = state.get("deleted_rows", [])
+            
+            if not edits and not deletions: return
+            
+            conn_stg = sqlite3.connect(DB_PATH, timeout=15)
+            conn_stg.execute("PRAGMA journal_mode=WAL;")
+            c_stg = conn_stg.cursor()
+            
+            # Handle Edits
+            for row_idx_str, row_edits in edits.items():
+                idx = int(row_idx_str)
+                db_id = int(df_staging.at[idx, 'id'])
+                
+                # --- NEW: Cross-Column Validation Logic ---
+                curr_type = df_staging.at[idx, 'type']
+                curr_entry = float(df_staging.at[idx, 'target_entry']) if pd.notna(df_staging.at[idx, 'target_entry']) else 0.0
+                curr_stop = float(df_staging.at[idx, 'planned_stop']) if pd.notna(df_staging.at[idx, 'planned_stop']) else 0.0
+                curr_status = df_staging.at[idx, 'status']
+                
+                new_type = row_edits.get('type', curr_type)
+                new_entry = float(row_edits.get('target_entry', curr_entry))
+                new_stop = float(row_edits.get('planned_stop', curr_stop))
+                new_status = row_edits.get('status', curr_status)
+                
+                # Pre-Flight Checklist Enforcement
+                if new_status == 'Armed 🎯':
+                    curr_tags = df_staging.at[idx, 'tags']
+                    curr_thesis = df_staging.at[idx, 'thesis']
+                    check_tags = row_edits.get('tags', curr_tags)
+                    check_thesis = row_edits.get('thesis', curr_thesis)
+                    
+                    if not check_tags or not check_thesis or len(str(check_thesis).split()) < 5:
+                        st.toast(f"❌ Pre-Flight Failed: {df_staging.at[idx, 'symbol']} requires Tags and a written Thesis to be Armed.", icon="🚨")
+                        row_edits['status'] = 'Waiting ⏳'
+                        st.session_state["staging_key"] += 1
+                        continue
+                
+                if new_entry > 0 and new_stop > 0:
+                    if new_type == 'Long' and new_stop >= new_entry:
+                        st.toast(f"❌ Invalid Long: Stop ({new_stop}) must be below Entry ({new_entry}).", icon="🚨")
+                        st.session_state["staging_key"] += 1 # Force UI remount
+                        continue 
+                    elif new_type == 'Short' and new_stop <= new_entry:
+                        st.toast(f"❌ Invalid Short: Stop ({new_stop}) must be above Entry ({new_entry}).", icon="🚨")
+                        st.session_state["staging_key"] += 1 # Force UI remount
+                        continue 
+                # ------------------------------------------
+                
+                set_clauses = []
+                params = []
+                for col, val in row_edits.items():
+                    set_clauses.append(f"{col}=?")
+                    params.append(val)
+                
+                if set_clauses:
+                    params.append(db_id)
+                    query = f"UPDATE alpha_campaigns SET {', '.join(set_clauses)} WHERE id=?"
+                    c_stg.execute(query, tuple(params))
+                    
+            # Handle Deletions
+            for idx in deletions:
+                db_id = int(df_staging.at[idx, 'id'])
+                c_stg.execute("DELETE FROM alpha_campaigns WHERE id=?", (db_id,))
+                
+            conn_stg.commit()
+            conn_stg.close()
+
+        def style_staging(row):
+            styles = pd.Series([''] * len(row), index=row.index)
+            if '⚠️' in str(row['Earnings']):
+                styles['Earnings'] = 'background-color: #fecaca; color: #991b1b; font-weight:bold;'
+            if row['status'] == 'Armed 🎯':
+                styles['status'] = 'background-color: #dcfce7; color: #166534; font-weight:bold;'
+            elif row['status'] == 'Waiting ⏳':
+                styles['status'] = 'background-color: #fef08a; color: #856404; font-weight:bold;'
+            return styles
+
+        st.data_editor(
+            df_staging.style.apply(style_staging, axis=1),
+            column_config={
+                "id": None,
+                "symbol": st.column_config.TextColumn("Ticker", disabled=True),
+                "type": st.column_config.SelectboxColumn("Direction", options=['Long', 'Short']),
+                "Earnings": st.column_config.TextColumn("Earnings", disabled=True),
+                "status": st.column_config.SelectboxColumn("Status", options=['Stalking 🔭', 'Waiting ⏳', 'Armed 🎯', 'Closed 🏁']),
+                "target_entry": st.column_config.NumberColumn("Target Entry $", format="%.2f"),
+                "planned_stop": st.column_config.NumberColumn("Planned Stop $", format="%.2f"),
+                "tags": st.column_config.TextColumn("Tags"),
+                "thesis": st.column_config.TextColumn("Thesis")
+            },
+            hide_index=True, width="stretch", num_rows="dynamic", height=400, key=f"staging_editor_{st.session_state['staging_key']}", on_change=commit_staging_edits
+        )
+        
+        c_dl1, c_dl2 = st.columns(2)
+        with c_dl1:
+            csv_stalk = df_staging[df_staging['status'] == 'Stalking 🔭'].drop(columns=['id']).to_csv(index=False).encode('utf-8')
+            st.download_button("💾 Download Stalk List (CSV)", data=csv_stalk, file_name=f"Stalk_List_{datetime.date.today().isoformat()}.csv", mime="text/csv")
+        with c_dl2:
+            csv_wait = df_staging[df_staging['status'].isin(['Waiting ⏳', 'Armed 🎯'])].drop(columns=['id']).to_csv(index=False).encode('utf-8')
+            st.download_button("💾 Download Wait/Armed List (CSV)", data=csv_wait, file_name=f"Wait_List_{datetime.date.today().isoformat()}.csv", mime="text/csv")
+
+        st.markdown("---")
+        st.markdown("#### 🤖 C2 Quant Pitch Dossier Generator")
+        
+        c_pitch1, c_pitch2 = st.columns([2, 1])
+        with c_pitch1:
+            pitch_sym = st.selectbox("Select Staged Ticker for Dossier:", df_staging['symbol'].unique())
+        with c_pitch2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button(f"⚙️ Compile Data for {pitch_sym}", width="stretch"):
+                with st.spinner("Compiling Macro, Technical, and Fundamental data..."):
+                    row = df_staging[df_staging['symbol'] == pitch_sym].iloc[0]
+                    entry = float(row['target_entry']) if pd.notna(row['target_entry']) else 0.0
+                    stop = float(row['planned_stop']) if pd.notna(row['planned_stop']) else 0.0
+                    direction = row['type']
+                    thesis = row['thesis']
+                    tags = row['tags']
+                    
+                    # Macro
+                    gear = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
+                    opt_dir = chart_df['opt_dir'].iloc[-1] if not chart_df.empty else 'Bear'
+                    vix = fetch_live_data('^VIX')[1]
+                    dist_data = get_distribution_tracker()
+                    spy_cdd = dist_data.get("SPY", (0, []))[0]
+                    qqq_cdd = dist_data.get("QQQ", (0, []))[0]
+                    rsp_cdd = dist_data.get("RSP", (0, []))[0]
+                    
+                    # Pre-Flight Math
+                    risk_per_share = abs(entry - stop)
+                    gear_risk_map = {5: 0.20, 4: 0.135, 3: 0.09, 2: 0.06, 1: 0.04, 0: 0.00}
+                    max_r_pct = gear_risk_map.get(gear, 0.0)
+                    max_risk_usd = global_metrics['nav'] * (max_r_pct / 100.0)
+                    max_shares = int(max_risk_usd // risk_per_share) if risk_per_share > 0 else 0
+                    
+                    # Technicals
+                    s20, s50, s200 = get_stock_smas_v2(pitch_sym)
+                    atr = get_atr(pitch_sym)
+                    spot, _ = fetch_live_data(pitch_sym)
+                    
+                    try:
+                        hist_52 = yf.Ticker(pitch_sym.split()[0]).history(period="1y")
+                        high_52 = hist_52['High'].max()
+                        low_52 = hist_52['Low'].min()
+                        dist_high = ((spot / high_52) - 1) * 100 if high_52 > 0 else 0
+                        dist_low = ((spot / low_52) - 1) * 100 if low_52 > 0 else 0
+                    except:
+                        high_52, low_52, dist_high, dist_low = 0, 0, 0, 0
+                    
+                    # Fundamentals & News
+                    fwd_pe, short_float, mkt_cap, avg_vol, news_str = get_fundamentals_and_news(pitch_sym)
+                    
+                    # Relative Strength
+                    sym_thrust, sym_rvol, etf_sym, etf_thrust, etf_rvol = get_relative_strength_stats(pitch_sym)
+                    
+                    # Zero-Cost Enhancements
+                    sec_name, ind_name = get_sector_and_industry(pitch_sym, 'Physical US Stocks')
+                    e_date = get_upcoming_earnings(pitch_sym)
+                    e_str = f"{e_date.strftime('%b %d, %Y')} ({(e_date - datetime.date.today()).days} days)" if e_date else "N/A"
+                    
+                    atr_dist = risk_per_share / atr if atr > 0 else 0
+                    implied_rr = (high_52 - entry) / risk_per_share if risk_per_share > 0 and high_52 > entry else 0
+                    
+                    # Silo Distribution Math
+                    nav_A = silo_metrics.get('U23144948', {}).get('nav', 0)
+                    nav_B = silo_metrics.get('U23139264', {}).get('nav', 0)
+                    nav_C = silo_metrics.get('U23154199', {}).get('nav', 0)
+                    nav_D = silo_metrics.get('U25218481', {}).get('nav', 0)
+                    g_nav = global_metrics['nav'] if global_metrics['nav'] > 0 else 1
+                    
+                    shares_A = int(max_shares * (nav_A / g_nav))
+                    shares_B = int(max_shares * (nav_B / g_nav))
+                    shares_C = int(max_shares * (nav_C / g_nav))
+                    shares_D = int(max_shares * (nav_D / g_nav))
+                    
+                    md_content = f"""# C2 QUANT PITCH DOSSIER: {pitch_sym}
+Date: {datetime.date.today().isoformat()}
+Direction: {direction}
+Sector/Industry: {sec_name} / {ind_name}
+Tags: {tags}
+
+## 1. MACRO WEATHER & CDD
+- **Alpha Engine:** Gear {gear}
+- **Options Trend:** {opt_dir}
+- **VIX:** {vix:.2f}
+- **Distribution Tracker (Consecutive Red Days):** SPY ({spy_cdd}) | QQQ ({qqq_cdd}) | RSP ({rsp_cdd})
+
+## 2. TOP ACTIONABLE DISCOVERIES (MACRO NARRATIVE)
+The Estate is currently operating in Gear {gear}. VIX is at {vix:.2f}. 
+Distribution pressure is {'elevated' if max(spy_cdd, qqq_cdd, rsp_cdd) >= 3 else 'low'} across major indices.
+
+## 3. CFO PRE-FLIGHT CHECK
+- **Target Entry:** ${entry:.2f}
+- **Planned Stop:** ${stop:.2f}
+- **Risk Per Share:** ${risk_per_share:.2f}
+- **Stop Distance in ATRs:** {atr_dist:.1f}x ATR
+- **Max Allowed Risk (Gear {gear}):** ${max_risk_usd:,.2f} ({max_r_pct}%)
+- **Max Position Size (Global):** {max_shares:,} shares
+  - *Silo A Allocation:* {shares_A:,} shares
+  - *Silo B Allocation:* {shares_B:,} shares
+  - *Silo C Allocation:* {shares_C:,} shares
+  - *Silo D Allocation:* {shares_D:,} shares
+
+## 4. TECHNICAL SNAPSHOT
+- **Live Spot Price:** ${spot:.2f}
+- **Moving Averages:** 20-SMA (${s20:.2f}) | 50-SMA (${s50:.2f}) | 200-SMA (${s200:.2f})
+- **Volatility (14-Day ATR):** ${atr:.2f}
+- **52-Week Range:** ${low_52:.2f} - ${high_52:.2f}
+- **Distance from High:** {dist_high:+.1f}%
+- **Implied R/R to 52w High:** {implied_rr:.1f}R
+
+## 5. RELATIVE STRENGTH & MARKET FLOW
+- **{pitch_sym} 3-Month Thrust vs SPY:** {sym_thrust}
+- **{pitch_sym} Relative Volume (RVOL):** {sym_rvol}
+- **Sector ETF ({etf_sym}) 3-Month Thrust vs SPY:** {etf_thrust}
+- **Sector ETF ({etf_sym}) RVOL:** {etf_rvol}
+
+## 6. FUNDAMENTALS & UPCOMING EVENTS
+- **Market Capitalization:** {mkt_cap}
+- **Average Daily Volume:** {avg_vol}
+- **Upcoming Earnings:** {e_str}
+- **Forward P/E:** {fwd_pe}
+- **Short Interest:** {short_float}
+
+**Recent Headlines:**
+{news_str}
+
+## 7. CIO THESIS
+{thesis}
+"""
+                    st.session_state['dossier_md'] = md_content
+                    st.session_state['dossier_sym'] = pitch_sym
+                    
+        if 'dossier_md' in st.session_state and st.session_state.get('dossier_sym') == pitch_sym:
+            st.success(f"✅ Data compiled successfully for {pitch_sym}!")
+            c_dl, c_save = st.columns(2)
+            with c_dl:
+                st.download_button(
+                    label=f"📥 Download {pitch_sym} C2 Pitch Dossier (.md)",
+                    data=st.session_state['dossier_md'],
+                    file_name=f"C2_Pitch_{pitch_sym}_{datetime.date.today().isoformat()}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+            with c_save:
+                if st.button("💾 Save Dossier to Database", use_container_width=True):
+                    conn_dos = sqlite3.connect(DB_PATH)
+                    c_dos = conn_dos.cursor()
+                    c_dos.execute("CREATE TABLE IF NOT EXISTS pitch_dossiers (date TEXT, symbol TEXT, content TEXT, PRIMARY KEY(date, symbol))")
+                    c_dos.execute("INSERT OR REPLACE INTO pitch_dossiers (date, symbol, content) VALUES (?, ?, ?)", (datetime.date.today().isoformat(), pitch_sym, st.session_state['dossier_md']))
+                    conn_dos.commit()
+                    conn_dos.close()
+                    st.toast(f"Dossier for {pitch_sym} saved to SQLite!", icon="✅")
+
+exp_sec10.markdown("##### 🟢 Active Campaigns")
+# Updated query to include the new emojis and tranche_added flag
+df_open = pd.read_sql_query("SELECT id, open_date, symbol, status, type, regime_in, sector, industry, sma_20, sma_50, sma_200, entry_price, initial_stop, tags, thesis, days_active, tranche_added FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Pending Settlement ⏳', 'Open', 'Pending Settlement')", conn_journal)
+
+if not df_open.empty:
+    # --- AUTO-HEAL MISSING DATA ---
+    needs_heal = False
+    for idx, row in df_open.iterrows():
+        if pd.isna(row['sector']) or row['sector'] == 'None' or pd.isna(row['sma_20']) or row['sma_20'] == 0.0:
+            sym = row['symbol']
+            sec, ind = get_sector_and_industry(sym, 'Physical US Stocks')
+            s20, s50, s200 = get_stock_smas_v2(sym)
+            
+            reg_in = row['regime_in']
+            if pd.isna(reg_in) or reg_in == 'None':
+                live_alpha_gear_heal = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
+                reg_in = f"Gear {live_alpha_gear_heal}"
+            
+            cj.execute("""
+                UPDATE alpha_campaigns 
+                SET sector=?, industry=?, sma_20=?, sma_50=?, sma_200=?, regime_in=? 
+                WHERE id=?
+            """, (sec, ind, s20, s50, s200, reg_in, row['id']))
+            needs_heal = True
+    
+    if needs_heal:
+        conn_journal.commit()
+        df_open = pd.read_sql_query("SELECT id, open_date, symbol, status, type, regime_in, sector, industry, sma_20, sma_50, sma_200, entry_price, initial_stop, tags, thesis, days_active, tranche_added FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Pending Settlement ⏳', 'Open', 'Pending Settlement')", conn_journal)
+
+    # Check for Tranche Added warnings
+    if 'tranche_added' in df_open.columns and df_open['tranche_added'].sum() > 0:
+        exp_sec10.warning("⚠️ **Tranche Added Detected:** One or more open campaigns have increased in share size. Please verify your 1R Stop Loss using the Alpha Risk Calculator.")
+        # Reset the flag after displaying
+        cj.execute("UPDATE alpha_campaigns SET tranche_added = 0 WHERE tranche_added = 1")
+        conn_journal.commit()
+
+    def commit_open_edits():
+        state = st.session_state.get("open_camp_editor", {})
+        edits = state.get("edited_rows", {})
+        if not edits: return
+        
+        conn_op = sqlite3.connect(DB_PATH, timeout=15)
+        conn_op.execute("PRAGMA journal_mode=WAL;")
+        c_op = conn_op.cursor()
+        
+        for row_idx_str, row_edits in edits.items():
+            idx = int(row_idx_str)
+            db_id = int(df_open.at[idx, 'id'])
+            
+            set_clauses = []
+            params = []
+            for col, val in row_edits.items():
+                set_clauses.append(f"{col}=?")
+                params.append(val)
+            
+            if set_clauses:
+                params.append(db_id)
+                query = f"UPDATE alpha_campaigns SET {', '.join(set_clauses)} WHERE id=?"
+                c_op.execute(query, tuple(params))
+                
+        conn_op.commit()
+        conn_op.close()
+
+    exp_sec10.markdown("<br><b>Active Campaigns Overview & Global Editor</b>", unsafe_allow_html=True)
+    
+    display_open = df_open.drop(columns=['tranche_added'], errors='ignore')
+    
+    # Force numeric conversion
+    cols_to_fill = ['sma_20', 'sma_50', 'sma_200', 'entry_price', 'initial_stop']
+    for col in cols_to_fill:
+        if col in display_open.columns:
+            display_open[col] = pd.to_numeric(display_open[col], errors='coerce').fillna(0.0)
+            
+    exp_sec10.data_editor(
+        display_open,
+        column_config={
+            "id": None,
+            "symbol": st.column_config.TextColumn("Ticker", disabled=True),
+            "open_date": st.column_config.TextColumn("Open Date", disabled=True),
+            "status": st.column_config.TextColumn("Status", disabled=True),
+            "type": st.column_config.TextColumn("Type", disabled=True),
+            "regime_in": st.column_config.TextColumn("Regime In", disabled=True),
+            "sector": st.column_config.TextColumn("Sector", disabled=True),
+            "industry": st.column_config.TextColumn("Industry", disabled=True),
+            "sma_20": st.column_config.NumberColumn("20 SMA", format="%.2f", disabled=True),
+            "sma_50": st.column_config.NumberColumn("50 SMA", format="%.2f", disabled=True),
+            "sma_200": st.column_config.NumberColumn("200 SMA", format="%.2f", disabled=True),
+            "entry_price": st.column_config.NumberColumn("Entry $", format="%.2f", disabled=True),
+            "days_active": st.column_config.NumberColumn("Days", disabled=True),
+            "initial_stop": st.column_config.NumberColumn("Initial Stop $", format="%.2f"),
+            "tags": st.column_config.TextColumn("Tags (Editable)"),
+            "thesis": st.column_config.TextColumn("Thesis (Editable)")
+        },
+        hide_index=True,
+        width="stretch",
+        key="open_camp_editor",
+        on_change=commit_open_edits
+    )
+    
+    csv_open_data = df_open.drop(columns=['id', 'tranche_added'], errors='ignore').to_csv(index=False).encode('utf-8')
+    exp_sec10.download_button("💾 Download Active Campaigns & Theses (CSV)", data=csv_open_data, file_name=f"Alpha_Journal_Open_{datetime.date.today().isoformat()}.csv", mime="text/csv")
+    
+else:
+    exp_sec10.caption("No open campaigns currently undocumented.")
+
+exp_sec10.markdown("##### 🏁 Closed Campaigns (Post-Mortem & Grading)")
+
+# We must select 'id' to map edits back to the specific row in the database
+df_closed = pd.read_sql_query("SELECT id, open_date, close_date, symbol, type, regime_in, sector, industry, entry_price, initial_stop, tags, thesis, days_active, total_pnl, r_multiple, grade FROM alpha_campaigns WHERE status IN ('Closed', 'Closed 🏁', 'Closed (Auto-Healed) 🩹') ORDER BY close_date DESC, id DESC", conn_journal)
+
+if not df_closed.empty:
+    exp_closed = exp_sec10.expander("📚 View Closed Campaigns, Post-Mortem & Analytics", expanded=False)
+    st.session_state['df_closed_cache'] = df_closed.copy()
+    
+    def commit_closed_edits():
+        edits = st.session_state["closed_camp_editor"].get("edited_rows", {})
+        if not edits: return
+        
+        cached_df = st.session_state.get('df_closed_cache')
+        if cached_df is None: return
+        
+        conn_cb = sqlite3.connect(DB_PATH, timeout=15)
+        conn_cb.execute("PRAGMA journal_mode=WAL;")
+        c_cb = conn_cb.cursor()
+        
+        for row_idx_str, row_edits in edits.items():
+            idx = int(row_idx_str)
+            db_id = int(cached_df.at[idx, 'id'])
+            
+            c_cb.execute("SELECT tags, thesis FROM alpha_campaigns WHERE id=?", (db_id,))
+            row_data = c_cb.fetchone()
+            if not row_data: continue
+            
+            old_tags, old_thesis = row_data
+            new_tags = str(row_edits.get("tags", old_tags if old_tags else ""))
+            new_thesis = str(row_edits.get("thesis", old_thesis if old_thesis else ""))
+            
+            c_cb.execute("UPDATE alpha_campaigns SET tags=?, thesis=? WHERE id=?", (new_tags, new_thesis, db_id))
+        
+        conn_cb.commit()
+        conn_cb.close()
+
+    def style_grades(val):
+        if "A+" in str(val): return 'color: #166534; font-weight: bold; background-color: #dcfce7;'
+        if "B" in str(val): return 'color: #15803d; font-weight: bold; background-color: #ecfccb;'
+        if "C" in str(val): return 'color: #856404; font-weight: bold; background-color: #fef08a;'
+        if "D" in str(val): return 'color: #842029; font-weight: bold; background-color: #f8d7da;'
+        if "F" in str(val): return 'color: #ffffff; font-weight: bold; background-color: #b91c1c;'
+        if "Auto-Healed" in str(val): return 'color: #9a3412; font-weight: bold; background-color: #ffedd5;'
+        return ''
+
+    styled_closed = df_closed.style.format({
+        "entry_price": "{:.2f}",
+        "initial_stop": "{:.2f}",
+        "total_pnl": "${:,.0f}",
+        "r_multiple": "{:+.2f}R"
+    }).map(style_grades, subset=['grade'])
+    
+    exp_closed.data_editor(
+        styled_closed, 
+        hide_index=True, 
+        width="stretch",
+        key="closed_camp_editor",
+        on_change=commit_closed_edits,
+        column_config={
+            "id": None, # Hide the primary key from the UI
+            "tags": st.column_config.TextColumn("tags (Editable)"),
+            "thesis": st.column_config.TextColumn("thesis (Editable)")
+        },
+        disabled=["open_date", "close_date", "symbol", "type", "regime_in", "sector", "industry", "entry_price", "initial_stop", "days_active", "total_pnl", "r_multiple", "grade"]
+    )
+    
+    # Exclude the internal 'id' column from the CSV export for a pristine spreadsheet    
+    csv_data = df_closed.drop(columns=['id']).to_csv(index=False).encode('utf-8')
+    exp_closed.download_button("💾 Download Accountability Journal (CSV)", data=csv_data, file_name=f"Alpha_Journal_Closed_{datetime.date.today().isoformat()}.csv", mime="text/csv")
+
+    # --- NEW: ACCOUNTABILITY ANALYTICS (TAG PIVOT TABLES) ---
+    analytics_df = df_closed.dropna(subset=['tags']).copy()
+    # Explode the comma-separated strings into a list, stripping whitespace
+    analytics_df['tags'] = analytics_df['tags'].apply(lambda x: [t.strip() for t in str(x).split(',') if t.strip()])
+    exploded_df = analytics_df.explode('tags')
+    exploded_df = exploded_df[exploded_df['tags'] != '']
+    
+    if not exploded_df.empty:
+        exp_closed.markdown("<br><h4 style='text-align: left; color: #334155; font-size: 18px; margin-top: 10px;'>📊 Edge Analytics (Tag-Based Performance)</h4>", unsafe_allow_html=True)
+        
+        # Aggregate the metrics
+        pivot_df = exploded_df.groupby('tags').agg(
+            Trade_Count=('symbol', 'count'),
+            # Win Rate strictly defined as Trades > $0
+            Wins=('total_pnl', lambda x: (x > 0).sum()),
+            Total_PnL=('total_pnl', 'sum'),
+            Avg_R_Mult=('r_multiple', 'mean')
+        ).reset_index()
+        
+        pivot_df['Win_Rate'] = (pivot_df['Wins'] / pivot_df['Trade_Count']) * 100
+        # Sort by highest R-Multiple Expectancy
+        pivot_df = pivot_df.sort_values(by='Avg_R_Mult', ascending=False).reset_index(drop=True)
+        
+        display_pivot = pivot_df[['tags', 'Trade_Count', 'Win_Rate', 'Avg_R_Mult', 'Total_PnL']].copy()
+        display_pivot.columns = ['Tag / Strategy', 'Trade Count', 'Win Rate (%)', 'Avg R-Multiple', 'Total PnL ($)']
+        
+        c_tbl, c_cht = exp_closed.columns([1.2, 1])
+        
+        with c_tbl:
+            def style_pivot(row):
+                styles = pd.Series([''] * len(row), index=row.index)
+                if row['Win Rate (%)'] >= 50.0:
+                    styles['Win Rate (%)'] = 'color: #16a34a; font-weight: bold;'
+                else:
+                    styles['Win Rate (%)'] = 'color: #dc2626; font-weight: bold;'
+                    
+                if row['Avg R-Multiple'] > 0:
+                    styles['Avg R-Multiple'] = 'color: #16a34a; font-weight: bold;'
+                elif row['Avg R-Multiple'] < 0:
+                    styles['Avg R-Multiple'] = 'color: #dc2626; font-weight: bold;'
+                    
+                if row['Total PnL ($)'] > 0:
+                    styles['Total PnL ($)'] = 'color: #16a34a; font-weight: bold;'
+                elif row['Total PnL ($)'] < 0:
+                    styles['Total PnL ($)'] = 'color: #dc2626; font-weight: bold;'
+                    
+                return styles
+            
+            exp_closed.markdown("**Edge Verification Ledger**")
+            exp_closed.dataframe(display_pivot.style.format({
+                'Win Rate (%)': '{:.1f}%',
+                'Avg R-Multiple': '{:+.2f}R',
+                'Total PnL ($)': '${:,.0f}'
+            }).apply(style_pivot, axis=1), hide_index=True, width="stretch")
+        
+        with c_cht:
+            # Reverse sort so the highest bar renders at the top of the Plotly chart
+            tags_chart_df = display_pivot.sort_values('Avg R-Multiple', ascending=True)
+            colors = ['#16a34a' if val > 0 else '#dc2626' for val in tags_chart_df['Avg R-Multiple']]
+            
+            fig_edge = go.Figure(go.Bar(
+                x=tags_chart_df['Avg R-Multiple'],
+                y=tags_chart_df['Tag / Strategy'],
+                orientation='h',
+                marker_color=colors,
+                text=tags_chart_df['Avg R-Multiple'].apply(lambda x: f"{x:+.2f}R"),
+                textposition='auto',
+                insidetextfont=dict(color='white'),
+                outsidetextfont=dict(color='black')
+            ))
+            
+            fig_edge.update_layout(
+                title="Average Expectancy (R-Multiple) per Tag",
+                margin=dict(l=0, r=20, t=30, b=0),
+                height=max(250, 100 + (len(tags_chart_df) * 35)), # Dynamic height based on tag count
+                xaxis=dict(title='Avg R-Multiple', zeroline=True, zerolinecolor='black', zerolinewidth=2),
+                yaxis=dict(title=''),
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+            exp_closed.plotly_chart(fig_edge, width="stretch")
+
+else:
+    exp_sec10.caption("No closed campaigns recorded yet.")
+    
+conn_journal.close()
+
+
 
 # --- SECTION 4: PNL ATTRIBUTION & VELOCITY ---
 st.subheader("4. PnL Attribution & Capital Velocity", anchor="sec4")
@@ -4850,943 +5784,6 @@ if not journal_raw_df.empty:
 
 else:
     exp_sec9b.info("No options history found in database.")
-
-# --- SECTION 10: ACCOUNTABILITY JOURNAL ---
-st.divider()
-st.subheader("10. Accountability Journal (Alpha Campaigns)", anchor="sec10")
-exp_sec10 = st.expander("📓 View Accountability Journal & Pipeline", expanded=False)
-
-# FIX: Added timeout and WAL mode to the Journal connection
-conn_journal = sqlite3.connect(DB_PATH, timeout=15)
-conn_journal.execute("PRAGMA journal_mode=WAL;")
-cj = conn_journal.cursor()
-
-cj.execute("""
-    CREATE TABLE IF NOT EXISTS tag_glossary (
-        tag TEXT PRIMARY KEY,
-        description TEXT
-    )
-""")
-
-cj.execute("""
-    CREATE TABLE IF NOT EXISTS alpha_campaigns (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        symbol TEXT,
-        type TEXT,
-        status TEXT DEFAULT 'Open 🟢',
-        open_date TEXT,
-        close_date TEXT,
-        regime_in TEXT,
-        sector TEXT,
-        industry TEXT,
-        sma_20 REAL,
-        sma_50 REAL,
-        sma_200 REAL,
-        entry_price REAL,
-        initial_stop REAL DEFAULT 0.0,
-        tags TEXT DEFAULT '',
-        thesis TEXT DEFAULT '',
-        days_active INTEGER DEFAULT 0,
-        total_pnl REAL DEFAULT 0.0,
-        r_multiple REAL DEFAULT 0.0,
-        grade TEXT DEFAULT ''
-    )
-""")
-
-# Safely add new columns for the Staging Pipeline if they don't exist
-try:
-    cj.execute("ALTER TABLE alpha_campaigns ADD COLUMN target_entry REAL DEFAULT 0.0")
-    cj.execute("ALTER TABLE alpha_campaigns ADD COLUMN planned_stop REAL DEFAULT 0.0")
-    cj.execute("ALTER TABLE alpha_campaigns ADD COLUMN tranche_added INTEGER DEFAULT 0")
-except sqlite3.OperationalError:
-    pass
-
-conn_journal.commit()
-
-# Dynamic Days Active Updater (Updates Open and Pending campaigns)
-cj.execute("SELECT id, open_date FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Pending Settlement ⏳')")
-for c_id, o_date in cj.fetchall():
-    try:
-        d_act = (datetime.date.today() - datetime.date.fromisoformat(o_date)).days
-        cj.execute("UPDATE alpha_campaigns SET days_active=? WHERE id=?", (d_act, c_id))
-    except Exception: pass
-conn_journal.commit()
-
-col_scan, col_close = exp_sec10.columns(2)
-
-with col_scan:
-    if exp_sec10.button("🔍 Scan for Undocumented Campaigns", width="stretch"):
-        alpha_assets = ['Physical US Stocks', 'International Stocks', 'US Tech CFDs', 'Gold', 'Crypto', 'Active Swing']
-        open_positions = pos_df[(pos_df['asset_class'].isin(alpha_assets)) & (pos_df['position'] != 0)]
-        
-        new_campaigns = 0
-        for _, r in open_positions.iterrows():
-            sym = r['symbol']
-            cj.execute("SELECT id FROM alpha_campaigns WHERE symbol=? AND status IN ('Open 🟢', 'Open')", (sym,))
-            if not cj.fetchone():
-                trade_type = "Long" if r['position'] > 0 else "Short"
-                sec, ind = get_sector_and_industry(sym, r['asset_class'])
-                s20, s50, s200 = get_stock_smas_v2(sym)
-                curr = r['currency'] if pd.notna(r.get('currency')) else 'USD'
-                fx = get_fx_rate(curr)
-                entry_usd = r['avg_cost'] if fx == 1.0 else (r['avg_cost'] / fx)  # Normalizing to local entry just in case
-                
-                live_alpha_gear_jnl = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
-                regime_in_str = f"Gear {live_alpha_gear_jnl}"
-                
-                cj.execute("""
-                    INSERT INTO alpha_campaigns 
-                    (symbol, type, status, open_date, regime_in, sector, industry, sma_20, sma_50, sma_200, entry_price)
-                    VALUES (?, ?, 'Open', ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (sym, trade_type, datetime.date.today().isoformat(), regime_in_str, sec, ind, s20, s50, s200, entry_usd))
-                
-                conn_journal.commit()
-                new_campaigns += 1
-                
-        if new_campaigns > 0:
-            exp_sec10.success(f"Generated {new_campaigns} new campaigns! Please input your Initial Stops and Thesis below.")
-            st.rerun()
-        else:
-            exp_sec10.info("No undocumented campaigns found in current portfolio.")
-
-with col_close:
-    if exp_sec10.button("🏁 Check for Closed Campaigns", width="stretch"):
-        # Fetch both Open and Pending campaigns to process T+1 Settlement Delay
-        cj.execute("SELECT id, symbol, open_date, entry_price, initial_stop, status FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Open', 'Pending Settlement ⏳', 'Pending Settlement')")
-        camps_to_check = cj.fetchall()
-        
-        closed_count = 0
-        pending_count = 0
-        reopened_count = 0
-        
-        for camp in camps_to_check:
-            c_id, sym, o_date, entry, stop, current_status = camp
-            
-            # Global Share Count Check (Aggregates across all silos)
-            sym_positions = pos_df[pos_df['symbol'] == sym]
-            global_shares = sym_positions['position'].sum() if not sym_positions.empty else 0.0
-
-            if abs(global_shares) < 0.001:
-                close_dt = datetime.date.today().isoformat()
-                
-                # 1. PnL Check (Strictly T+1 Clearinghouse Data)
-                try:
-                    cj.execute("SELECT SUM(realized_pnl) FROM champion_closed_trades WHERE symbol=? AND close_date >= ?", (sym, o_date))
-                    pnl_res = cj.fetchone()[0]
-                    total_pnl = pnl_res if pnl_res else 0.0
-                except Exception:
-                    total_pnl = 0.0
-                
-                # 2. T+1 Settlement Delay Logic
-                if abs(total_pnl) < 0.01:
-                    # If PnL is 0.00, the Flex Query hasn't hit yet. Send to Pending.
-                    if current_status != 'Pending Settlement ⏳':
-                        cj.execute("UPDATE alpha_campaigns SET status='Pending Settlement ⏳' WHERE id=?", (c_id,))
-                        pending_count += 1
-
-                else:
-                    # The official PnL has arrived. Grade and Lock permanently.
-                    # Global Share Count Aggregation Fix (Sum across silos per date, then Max)
-                    # v118: Added 30-day lookback to catch peak size for campaigns logged late
-                    cj.execute("""
-                        SELECT MAX(daily_total) FROM (
-                            SELECT SUM(ABS(position)) as daily_total 
-                            FROM daily_positions 
-                            WHERE symbol=? AND date >= date(?, '-30 days') 
-                            GROUP BY date
-                        )
-                    """, (sym, o_date))
-                    max_sh_res = cj.fetchone()[0]
-                    max_shares = max_sh_res if max_sh_res else 1.0
-                    initial_risk = abs(entry - stop) * max_shares
-                    
-                    if initial_risk > 0 and stop > 0:
-                        r_mult = total_pnl / initial_risk
-                        if r_mult >= 3.0: grade = "A+ (Elite Edge) 🏆"
-                        elif r_mult >= 1.0: grade = "B (Solid Exec) 🟢"
-                        elif r_mult >= -0.5: grade = "C (Scratch) 🟡"
-                        elif r_mult >= -1.2: grade = "D (Pro Loss) 🛡️"
-                        else: grade = "F (Discipline) 🚨"
-                    else:
-                        r_mult = 0.0
-                        grade = "Ungraded (No Stop)"
-                        
-                    cj.execute("""
-                        UPDATE alpha_campaigns 
-                        SET status='Closed', close_date=?, total_pnl=?, r_multiple=?, grade=?
-                        WHERE id=?
-                    """, (close_dt, total_pnl, r_mult, grade, c_id))
-                    closed_count += 1
-            
-            elif current_status == 'Pending Settlement ⏳':
-                # The user bought back into the position before settlement occurred. Reopen the campaign.
-                cj.execute("UPDATE alpha_campaigns SET status='Open' WHERE id=?", (c_id,))
-                reopened_count += 1
-                
-        conn_journal.commit()
-        
-        msg_parts = []
-        if closed_count > 0: msg_parts.append(f"Graded & Locked {closed_count} campaigns.")
-        if pending_count > 0: msg_parts.append(f"Sent {pending_count} campaigns to T+1 Pending Settlement.")
-        if reopened_count > 0: msg_parts.append(f"Reopened {reopened_count} campaigns due to new share acquisitions.")
-        
-        if msg_parts:
-            exp_sec10.success(" ".join(msg_parts))
-            st.rerun()
-        else:
-            exp_sec10.info("No actionable changes detected in open campaigns today.")
-
-# -------------------------------------------------------------------------
-# STRATEGY TAG GLOSSARY & SOPS
-# -------------------------------------------------------------------------
-
-# 2. Extract and Upsert all Unique Tags into Glossary
-core_tags = {"13F": "", "VCP": "Volatility Contraction Pattern", "ALCC": "", "Q-EP": "", "M-FLOW": "", "ATR-Ext": ""}
-for t, desc in core_tags.items():
-    cj.execute("INSERT OR IGNORE INTO tag_glossary (tag, description) VALUES (?, ?)", (t, desc))
-    
-cj.execute("SELECT tags FROM alpha_campaigns WHERE tags IS NOT NULL AND tags != ''")
-db_tags_rows = cj.fetchall()
-for row in db_tags_rows:
-    raw_tag_str = str(row[0])
-    if raw_tag_str:
-        split_tags = [t.strip() for t in raw_tag_str.split(',')]
-        for t in split_tags:
-            if t:
-                cj.execute("INSERT OR IGNORE INTO tag_glossary (tag, description) VALUES (?, ?)", (t, ""))
-conn_journal.commit()
-
-# Fetch absolute list of all tags for the dropdowns
-all_tags_list = pd.read_sql_query("SELECT tag FROM tag_glossary ORDER BY tag ASC", conn_journal)['tag'].tolist()
-
-with exp_sec10.expander("🏷️ Global Campaign Tag Editor", expanded=False):
-    df_all_camps = pd.read_sql_query("SELECT id, symbol, status, tags FROM alpha_campaigns ORDER BY status, symbol", conn_journal)
-    if not df_all_camps.empty:
-        df_all_camps['display_name'] = df_all_camps['symbol'] + " (" + df_all_camps['status'] + ")"
-        
-        c_camp, c_tags, c_btn = st.columns([2, 3, 1])
-        with c_camp:
-            selected_camp_name = st.selectbox("Select Campaign to Edit:", df_all_camps['display_name'].tolist())
-        
-        if selected_camp_name:
-            selected_row = df_all_camps[df_all_camps['display_name'] == selected_camp_name].iloc[0]
-            camp_id = int(selected_row['id'])
-            curr_tags_str = selected_row['tags']
-            
-            # Parse current tags and ensure they exist in the glossary to prevent UI crashes
-            curr_tags_list = [t.strip() for t in str(curr_tags_str).split(',')] if curr_tags_str else []
-            valid_curr_tags = [t for t in curr_tags_list if t in all_tags_list]
-            
-            with c_tags:
-                new_tags_list = st.multiselect("Modify Tags:", options=all_tags_list, default=valid_curr_tags)
-                
-            with c_btn:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("💾 Save Tags", use_container_width=True):
-                    new_tags_str = ", ".join(new_tags_list)
-                    cj.execute("UPDATE alpha_campaigns SET tags=? WHERE id=?", (new_tags_str, camp_id))
-                    conn_journal.commit()
-                    st.rerun()
-    else:
-        exp_sec10.info("No campaigns available.")
-
-with exp_sec10.expander("📖 Strategy Tag Glossary & SOPs", expanded=False):
-    
-    # --- NEW: Tag Creation Tool ---
-    c_new_tag, c_add_btn = st.columns([4, 1])
-    with c_new_tag:
-        new_tag_val = st.text_input("Create New Tag", placeholder="Type new tag here to add it to your master list...", label_visibility="collapsed")
-    with c_add_btn:
-        if st.button("➕ Add Tag", width="stretch"):
-            if new_tag_val:
-                clean_tag = new_tag_val.replace(',', '').strip()
-                if clean_tag:
-                    cj.execute("INSERT OR IGNORE INTO tag_glossary (tag, description) VALUES (?, ?)", (clean_tag, ""))
-                    conn_journal.commit()
-                    st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    df_glossary = pd.read_sql_query("SELECT tag, description FROM tag_glossary ORDER BY tag ASC", conn_journal)
-    
-    def commit_glossary_edits():
-        state = st.session_state["glossary_editor"]
-        edits = state.get("edited_rows", {})
-        deletions = state.get("deleted_rows", [])
-        
-        if not edits and not deletions: return
-        
-        conn_gl = sqlite3.connect(DB_PATH, timeout=15)
-        conn_gl.execute("PRAGMA journal_mode=WAL;")
-        c_gl = conn_gl.cursor()
-        
-        # Handle Description Edits
-        for row_idx_str, row_edits in edits.items():
-            idx = int(row_idx_str)
-            target_tag = df_glossary.at[idx, 'tag']
-            new_desc = str(row_edits.get("description", ""))
-            c_gl.execute("UPDATE tag_glossary SET description=? WHERE tag=?", (new_desc, target_tag))
-            
-        # Handle Tag Deletions
-        for idx in deletions:
-            target_tag = df_glossary.at[idx, 'tag']
-            c_gl.execute("DELETE FROM tag_glossary WHERE tag=?", (target_tag,))
-            
-        conn_gl.commit()
-        conn_gl.close()
-    
-    st.data_editor(
-        df_glossary,
-        column_config={
-            "tag": st.column_config.TextColumn("Tag (Master List)", disabled=True),
-            "description": st.column_config.TextColumn("Description / Rules (Editable)")
-        },
-        hide_index=True,
-        width="stretch",
-        num_rows="dynamic",
-        key="glossary_editor",
-        on_change=commit_glossary_edits
-    )
-
-# --- TRADINGVIEW SCREENER INGESTION ---
-tv_csv_path = os.path.join(TARGET_DIR, "TV_Screener.csv")
-if os.path.exists(tv_csv_path):
-    with exp_sec10.expander("📈 TradingView Screener Ingestion", expanded=True):
-        try:
-            tv_df = pd.read_csv(tv_csv_path)
-            # Dynamically find the ticker column (TV sometimes uses 'Ticker' or 'Symbol')
-            ticker_col = next((c for c in tv_df.columns if 'ticker' in c.lower() or 'symbol' in c.lower()), None)
-            
-            if ticker_col:
-                st.markdown("<div style='font-size: 14px; color: #334155; margin-bottom: 10px;'><b>New Screener Detected!</b> Check the boxes below to instantly stage candidates.</div>", unsafe_allow_html=True)
-                
-                if 'Stage' not in tv_df.columns:
-                    tv_df.insert(0, 'Stage', False)
-                    
-                edited_tv = st.data_editor(
-                    tv_df,
-                    hide_index=True,
-                    column_config={"Stage": st.column_config.CheckboxColumn("Stage", default=False)},
-                    width="stretch",
-                    key="tv_screener_editor"
-                )
-                
-                c_imp, c_del = st.columns([3, 1])
-                with c_imp:
-                    if st.button("🔭 Send Selected to Stalk List", width="stretch"):
-                        to_import = edited_tv[edited_tv['Stage'] == True]
-                        if not to_import.empty:
-                            conn_tv = sqlite3.connect(DB_PATH, timeout=15)
-                            conn_tv.execute("PRAGMA journal_mode=WAL;")
-                            c_tv = conn_tv.cursor()
-                            added_count = 0
-                            skipped_count = 0
-                            
-                            for _, row in to_import.iterrows():
-                                sym = str(row[ticker_col]).strip().upper()
-                                # Prevent duplicates if already active in the pipeline
-                                c_tv.execute("SELECT id FROM alpha_campaigns WHERE symbol=? AND status IN ('Stalking 🔭', 'Waiting ⏳', 'Armed 🎯', 'Open 🟢', 'Open', 'Pending Settlement ⏳')", (sym,))
-                                if not c_tv.fetchone():
-                                    c_tv.execute("INSERT INTO alpha_campaigns (symbol, type, status, thesis) VALUES (?, 'Long', 'Stalking 🔭', 'Imported from TradingView Screener.')", (sym,))
-                                    added_count += 1
-                                else:
-                                    skipped_count += 1
-                                    
-                            conn_tv.commit()
-                            conn_tv.close()
-                            
-                            if added_count > 0:
-                                st.success(f"Successfully staged {added_count} new candidates! ({skipped_count} skipped as duplicates).")
-                            else:
-                                st.warning(f"All selected candidates are already active in the pipeline.")
-                            st.rerun()
-                        else:
-                            st.warning("No tickers selected.")
-                with c_del:
-                    if st.button("🗑️ Delete CSV", width="stretch"):
-                        os.remove(tv_csv_path)
-                        st.rerun()
-            else:
-                st.error("Could not find a 'Ticker' or 'Symbol' column in the CSV. Please check your TradingView export settings.")
-        except Exception as e:
-            st.error(f"Error reading TV_Screener.csv: {e}")
-
-# --- NEW: PRE-TRADE STAGING AREA ---
-with exp_sec10.expander("🔭 View Pre-Trade Staging Area (Pipeline)", expanded=False):
-    
-    # Add New Stalking Candidate UI
-    with st.form("add_stalk_form", clear_on_submit=True):
-        c_sym, c_dir, c_tags, c_thes, c_add = st.columns([1, 1, 2, 3, 1])
-        with c_sym: new_stalk_sym = st.text_input("Ticker", placeholder="e.g. MU").upper()
-        with c_dir: new_stalk_dir = st.selectbox("Direction", options=["Long", "Short"])
-        with c_tags: new_stalk_tags = st.multiselect("Tags", options=all_tags_list)
-        with c_thes: new_stalk_thes = st.text_input("Thesis", placeholder="Why are we stalking this?")
-        with c_add: 
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.form_submit_button("Add to Stalk List", use_container_width=True):
-                if new_stalk_sym:
-                    tags_str = ", ".join(new_stalk_tags)
-                    cj.execute("INSERT INTO alpha_campaigns (symbol, type, status, tags, thesis) VALUES (?, ?, 'Stalking 🔭', ?, ?)", (new_stalk_sym, new_stalk_dir, tags_str, new_stalk_thes))
-                    conn_journal.commit()
-                    st.rerun()
-
-    if "staging_key" not in st.session_state:
-        st.session_state["staging_key"] = 0
-
-    df_staging = pd.read_sql_query("SELECT id, symbol, type, status, target_entry, planned_stop, tags, thesis FROM alpha_campaigns WHERE status IN ('Stalking 🔭', 'Waiting ⏳', 'Armed 🎯')", conn_journal)
-    
-    if not df_staging.empty:
-        # Earnings Blackout & Risk Math
-        earn_flags = []
-        planned_risk_total = 0.0
-        
-        for idx, row in df_staging.iterrows():
-            sym = row['symbol']
-            e_date = get_upcoming_earnings(sym)
-            if e_date:
-                days_to_e = (e_date - datetime.date.today()).days
-                if 0 <= days_to_e <= 5:
-                    earn_flags.append(f"⚠️ {e_date.strftime('%b %d')} ({days_to_e}d)")
-                else:
-                    earn_flags.append(f"{e_date.strftime('%b %d')} ({days_to_e}d)")
-            else:
-                earn_flags.append("N/A")
-                
-            if row['status'] in ['Waiting ⏳', 'Armed 🎯']:
-                # Assuming 1R sizing per trade (0.10% of Global NAV)
-                planned_risk_total += (global_metrics['nav'] * 0.001) 
-                    
-        df_staging.insert(2, 'Earnings', earn_flags)
-        
-        # Pre-Flight Risk Budget Check
-        regime_allowance = 0.0
-        live_alpha_gear_stg = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
-        
-        if live_alpha_gear_stg >= 3: regime_allowance = global_metrics['nav'] * 0.05 # 5% TOR
-        elif live_alpha_gear_stg in [1, 2]: regime_allowance = global_metrics['nav'] * 0.03 # 3% TOR
-        
-        if planned_risk_total > 0:
-            risk_color = "#16a34a" if planned_risk_total <= regime_allowance else "#dc2626"
-            st.markdown(f"<div style='font-size:13px; padding:8px; background-color:#f8fafc; border:1px solid #cbd5e1; border-radius:4px; margin-bottom:10px;'><b>Pre-Flight Risk Budget:</b> You have <b>${planned_risk_total:,.0f}</b> of risk staged in Waiting/Armed. (Regime Allowance: ${regime_allowance:,.0f}) <span style='color:{risk_color};'>{'✅ Safe' if planned_risk_total <= regime_allowance else '🚨 EXCEEDS MACRO LIMIT'}</span></div>", unsafe_allow_html=True)
-
-        def commit_staging_edits():
-            current_key = f"staging_editor_{st.session_state['staging_key']}"
-            state = st.session_state.get(current_key, {})
-            edits = state.get("edited_rows", {})
-            deletions = state.get("deleted_rows", [])
-            
-            if not edits and not deletions: return
-            
-            conn_stg = sqlite3.connect(DB_PATH, timeout=15)
-            conn_stg.execute("PRAGMA journal_mode=WAL;")
-            c_stg = conn_stg.cursor()
-            
-            # Handle Edits
-            for row_idx_str, row_edits in edits.items():
-                idx = int(row_idx_str)
-                db_id = int(df_staging.at[idx, 'id'])
-                
-                # --- NEW: Cross-Column Validation Logic ---
-                curr_type = df_staging.at[idx, 'type']
-                curr_entry = float(df_staging.at[idx, 'target_entry']) if pd.notna(df_staging.at[idx, 'target_entry']) else 0.0
-                curr_stop = float(df_staging.at[idx, 'planned_stop']) if pd.notna(df_staging.at[idx, 'planned_stop']) else 0.0
-                curr_status = df_staging.at[idx, 'status']
-                
-                new_type = row_edits.get('type', curr_type)
-                new_entry = float(row_edits.get('target_entry', curr_entry))
-                new_stop = float(row_edits.get('planned_stop', curr_stop))
-                new_status = row_edits.get('status', curr_status)
-                
-                # Pre-Flight Checklist Enforcement
-                if new_status == 'Armed 🎯':
-                    curr_tags = df_staging.at[idx, 'tags']
-                    curr_thesis = df_staging.at[idx, 'thesis']
-                    check_tags = row_edits.get('tags', curr_tags)
-                    check_thesis = row_edits.get('thesis', curr_thesis)
-                    
-                    if not check_tags or not check_thesis or len(str(check_thesis).split()) < 5:
-                        st.toast(f"❌ Pre-Flight Failed: {df_staging.at[idx, 'symbol']} requires Tags and a written Thesis to be Armed.", icon="🚨")
-                        row_edits['status'] = 'Waiting ⏳'
-                        st.session_state["staging_key"] += 1
-                        continue
-                
-                if new_entry > 0 and new_stop > 0:
-                    if new_type == 'Long' and new_stop >= new_entry:
-                        st.toast(f"❌ Invalid Long: Stop ({new_stop}) must be below Entry ({new_entry}).", icon="🚨")
-                        st.session_state["staging_key"] += 1 # Force UI remount
-                        continue 
-                    elif new_type == 'Short' and new_stop <= new_entry:
-                        st.toast(f"❌ Invalid Short: Stop ({new_stop}) must be above Entry ({new_entry}).", icon="🚨")
-                        st.session_state["staging_key"] += 1 # Force UI remount
-                        continue 
-                # ------------------------------------------
-                
-                set_clauses = []
-                params = []
-                for col, val in row_edits.items():
-                    set_clauses.append(f"{col}=?")
-                    params.append(val)
-                
-                if set_clauses:
-                    params.append(db_id)
-                    query = f"UPDATE alpha_campaigns SET {', '.join(set_clauses)} WHERE id=?"
-                    c_stg.execute(query, tuple(params))
-                    
-            # Handle Deletions
-            for idx in deletions:
-                db_id = int(df_staging.at[idx, 'id'])
-                c_stg.execute("DELETE FROM alpha_campaigns WHERE id=?", (db_id,))
-                
-            conn_stg.commit()
-            conn_stg.close()
-
-        def style_staging(row):
-            styles = pd.Series([''] * len(row), index=row.index)
-            if '⚠️' in str(row['Earnings']):
-                styles['Earnings'] = 'background-color: #fecaca; color: #991b1b; font-weight:bold;'
-            if row['status'] == 'Armed 🎯':
-                styles['status'] = 'background-color: #dcfce7; color: #166534; font-weight:bold;'
-            elif row['status'] == 'Waiting ⏳':
-                styles['status'] = 'background-color: #fef08a; color: #856404; font-weight:bold;'
-            return styles
-
-        st.data_editor(
-            df_staging.style.apply(style_staging, axis=1),
-            column_config={
-                "id": None,
-                "symbol": st.column_config.TextColumn("Ticker", disabled=True),
-                "type": st.column_config.SelectboxColumn("Direction", options=['Long', 'Short']),
-                "Earnings": st.column_config.TextColumn("Earnings", disabled=True),
-                "status": st.column_config.SelectboxColumn("Status", options=['Stalking 🔭', 'Waiting ⏳', 'Armed 🎯', 'Closed 🏁']),
-                "target_entry": st.column_config.NumberColumn("Target Entry $", format="%.2f"),
-                "planned_stop": st.column_config.NumberColumn("Planned Stop $", format="%.2f"),
-                "tags": st.column_config.TextColumn("Tags"),
-                "thesis": st.column_config.TextColumn("Thesis")
-            },
-            hide_index=True, width="stretch", num_rows="dynamic", height=400, key=f"staging_editor_{st.session_state['staging_key']}", on_change=commit_staging_edits
-        )
-        
-        c_dl1, c_dl2 = st.columns(2)
-        with c_dl1:
-            csv_stalk = df_staging[df_staging['status'] == 'Stalking 🔭'].drop(columns=['id']).to_csv(index=False).encode('utf-8')
-            st.download_button("💾 Download Stalk List (CSV)", data=csv_stalk, file_name=f"Stalk_List_{datetime.date.today().isoformat()}.csv", mime="text/csv")
-        with c_dl2:
-            csv_wait = df_staging[df_staging['status'].isin(['Waiting ⏳', 'Armed 🎯'])].drop(columns=['id']).to_csv(index=False).encode('utf-8')
-            st.download_button("💾 Download Wait/Armed List (CSV)", data=csv_wait, file_name=f"Wait_List_{datetime.date.today().isoformat()}.csv", mime="text/csv")
-
-        st.markdown("---")
-        st.markdown("#### 🤖 C2 Quant Pitch Dossier Generator")
-        
-        c_pitch1, c_pitch2 = st.columns([2, 1])
-        with c_pitch1:
-            pitch_sym = st.selectbox("Select Staged Ticker for Dossier:", df_staging['symbol'].unique())
-        with c_pitch2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"⚙️ Compile Data for {pitch_sym}", width="stretch"):
-                with st.spinner("Compiling Macro, Technical, and Fundamental data..."):
-                    row = df_staging[df_staging['symbol'] == pitch_sym].iloc[0]
-                    entry = float(row['target_entry']) if pd.notna(row['target_entry']) else 0.0
-                    stop = float(row['planned_stop']) if pd.notna(row['planned_stop']) else 0.0
-                    direction = row['type']
-                    thesis = row['thesis']
-                    tags = row['tags']
-                    
-                    # Macro
-                    gear = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
-                    opt_dir = chart_df['opt_dir'].iloc[-1] if not chart_df.empty else 'Bear'
-                    vix = fetch_live_data('^VIX')[1]
-                    dist_data = get_distribution_tracker()
-                    spy_cdd = dist_data.get("SPY", (0, []))[0]
-                    qqq_cdd = dist_data.get("QQQ", (0, []))[0]
-                    rsp_cdd = dist_data.get("RSP", (0, []))[0]
-                    
-                    # Pre-Flight Math
-                    risk_per_share = abs(entry - stop)
-                    gear_risk_map = {5: 0.20, 4: 0.135, 3: 0.09, 2: 0.06, 1: 0.04, 0: 0.00}
-                    max_r_pct = gear_risk_map.get(gear, 0.0)
-                    max_risk_usd = global_metrics['nav'] * (max_r_pct / 100.0)
-                    max_shares = int(max_risk_usd // risk_per_share) if risk_per_share > 0 else 0
-                    
-                    # Technicals
-                    s20, s50, s200 = get_stock_smas_v2(pitch_sym)
-                    atr = get_atr(pitch_sym)
-                    spot, _ = fetch_live_data(pitch_sym)
-                    
-                    try:
-                        hist_52 = yf.Ticker(pitch_sym.split()[0]).history(period="1y")
-                        high_52 = hist_52['High'].max()
-                        low_52 = hist_52['Low'].min()
-                        dist_high = ((spot / high_52) - 1) * 100 if high_52 > 0 else 0
-                        dist_low = ((spot / low_52) - 1) * 100 if low_52 > 0 else 0
-                    except:
-                        high_52, low_52, dist_high, dist_low = 0, 0, 0, 0
-                    
-                    # Fundamentals & News
-                    fwd_pe, short_float, mkt_cap, avg_vol, news_str = get_fundamentals_and_news(pitch_sym)
-                    
-                    # Relative Strength
-                    sym_thrust, sym_rvol, etf_sym, etf_thrust, etf_rvol = get_relative_strength_stats(pitch_sym)
-                    
-                    # Zero-Cost Enhancements
-                    sec_name, ind_name = get_sector_and_industry(pitch_sym, 'Physical US Stocks')
-                    e_date = get_upcoming_earnings(pitch_sym)
-                    e_str = f"{e_date.strftime('%b %d, %Y')} ({(e_date - datetime.date.today()).days} days)" if e_date else "N/A"
-                    
-                    atr_dist = risk_per_share / atr if atr > 0 else 0
-                    implied_rr = (high_52 - entry) / risk_per_share if risk_per_share > 0 and high_52 > entry else 0
-                    
-                    # Silo Distribution Math
-                    nav_A = silo_metrics.get('U23144948', {}).get('nav', 0)
-                    nav_B = silo_metrics.get('U23139264', {}).get('nav', 0)
-                    nav_C = silo_metrics.get('U23154199', {}).get('nav', 0)
-                    nav_D = silo_metrics.get('U25218481', {}).get('nav', 0)
-                    g_nav = global_metrics['nav'] if global_metrics['nav'] > 0 else 1
-                    
-                    shares_A = int(max_shares * (nav_A / g_nav))
-                    shares_B = int(max_shares * (nav_B / g_nav))
-                    shares_C = int(max_shares * (nav_C / g_nav))
-                    shares_D = int(max_shares * (nav_D / g_nav))
-                    
-                    md_content = f"""# C2 QUANT PITCH DOSSIER: {pitch_sym}
-Date: {datetime.date.today().isoformat()}
-Direction: {direction}
-Sector/Industry: {sec_name} / {ind_name}
-Tags: {tags}
-
-## 1. MACRO WEATHER & CDD
-- **Alpha Engine:** Gear {gear}
-- **Options Trend:** {opt_dir}
-- **VIX:** {vix:.2f}
-- **Distribution Tracker (Consecutive Red Days):** SPY ({spy_cdd}) | QQQ ({qqq_cdd}) | RSP ({rsp_cdd})
-
-## 2. TOP ACTIONABLE DISCOVERIES (MACRO NARRATIVE)
-The Estate is currently operating in Gear {gear}. VIX is at {vix:.2f}. 
-Distribution pressure is {'elevated' if max(spy_cdd, qqq_cdd, rsp_cdd) >= 3 else 'low'} across major indices.
-
-## 3. CFO PRE-FLIGHT CHECK
-- **Target Entry:** ${entry:.2f}
-- **Planned Stop:** ${stop:.2f}
-- **Risk Per Share:** ${risk_per_share:.2f}
-- **Stop Distance in ATRs:** {atr_dist:.1f}x ATR
-- **Max Allowed Risk (Gear {gear}):** ${max_risk_usd:,.2f} ({max_r_pct}%)
-- **Max Position Size (Global):** {max_shares:,} shares
-  - *Silo A Allocation:* {shares_A:,} shares
-  - *Silo B Allocation:* {shares_B:,} shares
-  - *Silo C Allocation:* {shares_C:,} shares
-  - *Silo D Allocation:* {shares_D:,} shares
-
-## 4. TECHNICAL SNAPSHOT
-- **Live Spot Price:** ${spot:.2f}
-- **Moving Averages:** 20-SMA (${s20:.2f}) | 50-SMA (${s50:.2f}) | 200-SMA (${s200:.2f})
-- **Volatility (14-Day ATR):** ${atr:.2f}
-- **52-Week Range:** ${low_52:.2f} - ${high_52:.2f}
-- **Distance from High:** {dist_high:+.1f}%
-- **Implied R/R to 52w High:** {implied_rr:.1f}R
-
-## 5. RELATIVE STRENGTH & MARKET FLOW
-- **{pitch_sym} 3-Month Thrust vs SPY:** {sym_thrust}
-- **{pitch_sym} Relative Volume (RVOL):** {sym_rvol}
-- **Sector ETF ({etf_sym}) 3-Month Thrust vs SPY:** {etf_thrust}
-- **Sector ETF ({etf_sym}) RVOL:** {etf_rvol}
-
-## 6. FUNDAMENTALS & UPCOMING EVENTS
-- **Market Capitalization:** {mkt_cap}
-- **Average Daily Volume:** {avg_vol}
-- **Upcoming Earnings:** {e_str}
-- **Forward P/E:** {fwd_pe}
-- **Short Interest:** {short_float}
-
-**Recent Headlines:**
-{news_str}
-
-## 7. CIO THESIS
-{thesis}
-"""
-                    st.session_state['dossier_md'] = md_content
-                    st.session_state['dossier_sym'] = pitch_sym
-                    
-        if 'dossier_md' in st.session_state and st.session_state.get('dossier_sym') == pitch_sym:
-            st.success(f"✅ Data compiled successfully for {pitch_sym}!")
-            c_dl, c_save = st.columns(2)
-            with c_dl:
-                st.download_button(
-                    label=f"📥 Download {pitch_sym} C2 Pitch Dossier (.md)",
-                    data=st.session_state['dossier_md'],
-                    file_name=f"C2_Pitch_{pitch_sym}_{datetime.date.today().isoformat()}.md",
-                    mime="text/markdown",
-                    use_container_width=True
-                )
-            with c_save:
-                if st.button("💾 Save Dossier to Database", use_container_width=True):
-                    conn_dos = sqlite3.connect(DB_PATH)
-                    c_dos = conn_dos.cursor()
-                    c_dos.execute("CREATE TABLE IF NOT EXISTS pitch_dossiers (date TEXT, symbol TEXT, content TEXT, PRIMARY KEY(date, symbol))")
-                    c_dos.execute("INSERT OR REPLACE INTO pitch_dossiers (date, symbol, content) VALUES (?, ?, ?)", (datetime.date.today().isoformat(), pitch_sym, st.session_state['dossier_md']))
-                    conn_dos.commit()
-                    conn_dos.close()
-                    st.toast(f"Dossier for {pitch_sym} saved to SQLite!", icon="✅")
-
-exp_sec10.markdown("##### 🟢 Active Campaigns")
-# Updated query to include the new emojis and tranche_added flag
-df_open = pd.read_sql_query("SELECT id, open_date, symbol, status, type, regime_in, sector, industry, sma_20, sma_50, sma_200, entry_price, initial_stop, tags, thesis, days_active, tranche_added FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Pending Settlement ⏳', 'Open', 'Pending Settlement')", conn_journal)
-
-if not df_open.empty:
-    # --- AUTO-HEAL MISSING DATA ---
-    needs_heal = False
-    for idx, row in df_open.iterrows():
-        if pd.isna(row['sector']) or row['sector'] == 'None' or pd.isna(row['sma_20']) or row['sma_20'] == 0.0:
-            sym = row['symbol']
-            sec, ind = get_sector_and_industry(sym, 'Physical US Stocks')
-            s20, s50, s200 = get_stock_smas_v2(sym)
-            
-            reg_in = row['regime_in']
-            if pd.isna(reg_in) or reg_in == 'None':
-                live_alpha_gear_heal = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
-                reg_in = f"Gear {live_alpha_gear_heal}"
-            
-            cj.execute("""
-                UPDATE alpha_campaigns 
-                SET sector=?, industry=?, sma_20=?, sma_50=?, sma_200=?, regime_in=? 
-                WHERE id=?
-            """, (sec, ind, s20, s50, s200, reg_in, row['id']))
-            needs_heal = True
-    
-    if needs_heal:
-        conn_journal.commit()
-        df_open = pd.read_sql_query("SELECT id, open_date, symbol, status, type, regime_in, sector, industry, sma_20, sma_50, sma_200, entry_price, initial_stop, tags, thesis, days_active, tranche_added FROM alpha_campaigns WHERE status IN ('Open 🟢', 'Pending Settlement ⏳', 'Open', 'Pending Settlement')", conn_journal)
-
-    # Check for Tranche Added warnings
-    if 'tranche_added' in df_open.columns and df_open['tranche_added'].sum() > 0:
-        exp_sec10.warning("⚠️ **Tranche Added Detected:** One or more open campaigns have increased in share size. Please verify your 1R Stop Loss using the Alpha Risk Calculator.")
-        # Reset the flag after displaying
-        cj.execute("UPDATE alpha_campaigns SET tranche_added = 0 WHERE tranche_added = 1")
-        conn_journal.commit()
-
-    def commit_open_edits():
-        state = st.session_state.get("open_camp_editor", {})
-        edits = state.get("edited_rows", {})
-        if not edits: return
-        
-        conn_op = sqlite3.connect(DB_PATH, timeout=15)
-        conn_op.execute("PRAGMA journal_mode=WAL;")
-        c_op = conn_op.cursor()
-        
-        for row_idx_str, row_edits in edits.items():
-            idx = int(row_idx_str)
-            db_id = int(df_open.at[idx, 'id'])
-            
-            set_clauses = []
-            params = []
-            for col, val in row_edits.items():
-                set_clauses.append(f"{col}=?")
-                params.append(val)
-            
-            if set_clauses:
-                params.append(db_id)
-                query = f"UPDATE alpha_campaigns SET {', '.join(set_clauses)} WHERE id=?"
-                c_op.execute(query, tuple(params))
-                
-        conn_op.commit()
-        conn_op.close()
-
-    exp_sec10.markdown("<br><b>Active Campaigns Overview & Global Editor</b>", unsafe_allow_html=True)
-    
-    display_open = df_open.drop(columns=['tranche_added'], errors='ignore')
-    
-    # Force numeric conversion
-    cols_to_fill = ['sma_20', 'sma_50', 'sma_200', 'entry_price', 'initial_stop']
-    for col in cols_to_fill:
-        if col in display_open.columns:
-            display_open[col] = pd.to_numeric(display_open[col], errors='coerce').fillna(0.0)
-            
-    exp_sec10.data_editor(
-        display_open,
-        column_config={
-            "id": None,
-            "symbol": st.column_config.TextColumn("Ticker", disabled=True),
-            "open_date": st.column_config.TextColumn("Open Date", disabled=True),
-            "status": st.column_config.TextColumn("Status", disabled=True),
-            "type": st.column_config.TextColumn("Type", disabled=True),
-            "regime_in": st.column_config.TextColumn("Regime In", disabled=True),
-            "sector": st.column_config.TextColumn("Sector", disabled=True),
-            "industry": st.column_config.TextColumn("Industry", disabled=True),
-            "sma_20": st.column_config.NumberColumn("20 SMA", format="%.2f", disabled=True),
-            "sma_50": st.column_config.NumberColumn("50 SMA", format="%.2f", disabled=True),
-            "sma_200": st.column_config.NumberColumn("200 SMA", format="%.2f", disabled=True),
-            "entry_price": st.column_config.NumberColumn("Entry $", format="%.2f", disabled=True),
-            "days_active": st.column_config.NumberColumn("Days", disabled=True),
-            "initial_stop": st.column_config.NumberColumn("Initial Stop $", format="%.2f"),
-            "tags": st.column_config.TextColumn("Tags (Editable)"),
-            "thesis": st.column_config.TextColumn("Thesis (Editable)")
-        },
-        hide_index=True,
-        width="stretch",
-        key="open_camp_editor",
-        on_change=commit_open_edits
-    )
-    
-    csv_open_data = df_open.drop(columns=['id', 'tranche_added'], errors='ignore').to_csv(index=False).encode('utf-8')
-    exp_sec10.download_button("💾 Download Active Campaigns & Theses (CSV)", data=csv_open_data, file_name=f"Alpha_Journal_Open_{datetime.date.today().isoformat()}.csv", mime="text/csv")
-    
-else:
-    exp_sec10.caption("No open campaigns currently undocumented.")
-
-exp_sec10.markdown("##### 🏁 Closed Campaigns (Post-Mortem & Grading)")
-
-# We must select 'id' to map edits back to the specific row in the database
-df_closed = pd.read_sql_query("SELECT id, open_date, close_date, symbol, type, regime_in, sector, industry, entry_price, initial_stop, tags, thesis, days_active, total_pnl, r_multiple, grade FROM alpha_campaigns WHERE status IN ('Closed', 'Closed 🏁', 'Closed (Auto-Healed) 🩹') ORDER BY close_date DESC, id DESC", conn_journal)
-
-if not df_closed.empty:
-    exp_closed = exp_sec10.expander("📚 View Closed Campaigns, Post-Mortem & Analytics", expanded=False)
-    st.session_state['df_closed_cache'] = df_closed.copy()
-    
-    def commit_closed_edits():
-        edits = st.session_state["closed_camp_editor"].get("edited_rows", {})
-        if not edits: return
-        
-        cached_df = st.session_state.get('df_closed_cache')
-        if cached_df is None: return
-        
-        conn_cb = sqlite3.connect(DB_PATH, timeout=15)
-        conn_cb.execute("PRAGMA journal_mode=WAL;")
-        c_cb = conn_cb.cursor()
-        
-        for row_idx_str, row_edits in edits.items():
-            idx = int(row_idx_str)
-            db_id = int(cached_df.at[idx, 'id'])
-            
-            c_cb.execute("SELECT tags, thesis FROM alpha_campaigns WHERE id=?", (db_id,))
-            row_data = c_cb.fetchone()
-            if not row_data: continue
-            
-            old_tags, old_thesis = row_data
-            new_tags = str(row_edits.get("tags", old_tags if old_tags else ""))
-            new_thesis = str(row_edits.get("thesis", old_thesis if old_thesis else ""))
-            
-            c_cb.execute("UPDATE alpha_campaigns SET tags=?, thesis=? WHERE id=?", (new_tags, new_thesis, db_id))
-        
-        conn_cb.commit()
-        conn_cb.close()
-
-    def style_grades(val):
-        if "A+" in str(val): return 'color: #166534; font-weight: bold; background-color: #dcfce7;'
-        if "B" in str(val): return 'color: #15803d; font-weight: bold; background-color: #ecfccb;'
-        if "C" in str(val): return 'color: #856404; font-weight: bold; background-color: #fef08a;'
-        if "D" in str(val): return 'color: #842029; font-weight: bold; background-color: #f8d7da;'
-        if "F" in str(val): return 'color: #ffffff; font-weight: bold; background-color: #b91c1c;'
-        if "Auto-Healed" in str(val): return 'color: #9a3412; font-weight: bold; background-color: #ffedd5;'
-        return ''
-
-    styled_closed = df_closed.style.format({
-        "entry_price": "{:.2f}",
-        "initial_stop": "{:.2f}",
-        "total_pnl": "${:,.0f}",
-        "r_multiple": "{:+.2f}R"
-    }).map(style_grades, subset=['grade'])
-    
-    exp_closed.data_editor(
-        styled_closed, 
-        hide_index=True, 
-        width="stretch",
-        key="closed_camp_editor",
-        on_change=commit_closed_edits,
-        column_config={
-            "id": None, # Hide the primary key from the UI
-            "tags": st.column_config.TextColumn("tags (Editable)"),
-            "thesis": st.column_config.TextColumn("thesis (Editable)")
-        },
-        disabled=["open_date", "close_date", "symbol", "type", "regime_in", "sector", "industry", "entry_price", "initial_stop", "days_active", "total_pnl", "r_multiple", "grade"]
-    )
-    
-    # Exclude the internal 'id' column from the CSV export for a pristine spreadsheet    
-    csv_data = df_closed.drop(columns=['id']).to_csv(index=False).encode('utf-8')
-    exp_closed.download_button("💾 Download Accountability Journal (CSV)", data=csv_data, file_name=f"Alpha_Journal_Closed_{datetime.date.today().isoformat()}.csv", mime="text/csv")
-
-    # --- NEW: ACCOUNTABILITY ANALYTICS (TAG PIVOT TABLES) ---
-    analytics_df = df_closed.dropna(subset=['tags']).copy()
-    # Explode the comma-separated strings into a list, stripping whitespace
-    analytics_df['tags'] = analytics_df['tags'].apply(lambda x: [t.strip() for t in str(x).split(',') if t.strip()])
-    exploded_df = analytics_df.explode('tags')
-    exploded_df = exploded_df[exploded_df['tags'] != '']
-    
-    if not exploded_df.empty:
-        exp_closed.markdown("<br><h4 style='text-align: left; color: #334155; font-size: 18px; margin-top: 10px;'>📊 Edge Analytics (Tag-Based Performance)</h4>", unsafe_allow_html=True)
-        
-        # Aggregate the metrics
-        pivot_df = exploded_df.groupby('tags').agg(
-            Trade_Count=('symbol', 'count'),
-            # Win Rate strictly defined as Trades > $0
-            Wins=('total_pnl', lambda x: (x > 0).sum()),
-            Total_PnL=('total_pnl', 'sum'),
-            Avg_R_Mult=('r_multiple', 'mean')
-        ).reset_index()
-        
-        pivot_df['Win_Rate'] = (pivot_df['Wins'] / pivot_df['Trade_Count']) * 100
-        # Sort by highest R-Multiple Expectancy
-        pivot_df = pivot_df.sort_values(by='Avg_R_Mult', ascending=False).reset_index(drop=True)
-        
-        display_pivot = pivot_df[['tags', 'Trade_Count', 'Win_Rate', 'Avg_R_Mult', 'Total_PnL']].copy()
-        display_pivot.columns = ['Tag / Strategy', 'Trade Count', 'Win Rate (%)', 'Avg R-Multiple', 'Total PnL ($)']
-        
-        c_tbl, c_cht = exp_closed.columns([1.2, 1])
-        
-        with c_tbl:
-            def style_pivot(row):
-                styles = pd.Series([''] * len(row), index=row.index)
-                if row['Win Rate (%)'] >= 50.0:
-                    styles['Win Rate (%)'] = 'color: #16a34a; font-weight: bold;'
-                else:
-                    styles['Win Rate (%)'] = 'color: #dc2626; font-weight: bold;'
-                    
-                if row['Avg R-Multiple'] > 0:
-                    styles['Avg R-Multiple'] = 'color: #16a34a; font-weight: bold;'
-                elif row['Avg R-Multiple'] < 0:
-                    styles['Avg R-Multiple'] = 'color: #dc2626; font-weight: bold;'
-                    
-                if row['Total PnL ($)'] > 0:
-                    styles['Total PnL ($)'] = 'color: #16a34a; font-weight: bold;'
-                elif row['Total PnL ($)'] < 0:
-                    styles['Total PnL ($)'] = 'color: #dc2626; font-weight: bold;'
-                    
-                return styles
-            
-            exp_closed.markdown("**Edge Verification Ledger**")
-            exp_closed.dataframe(display_pivot.style.format({
-                'Win Rate (%)': '{:.1f}%',
-                'Avg R-Multiple': '{:+.2f}R',
-                'Total PnL ($)': '${:,.0f}'
-            }).apply(style_pivot, axis=1), hide_index=True, width="stretch")
-        
-        with c_cht:
-            # Reverse sort so the highest bar renders at the top of the Plotly chart
-            chart_df = display_pivot.sort_values('Avg R-Multiple', ascending=True)
-            colors = ['#16a34a' if val > 0 else '#dc2626' for val in chart_df['Avg R-Multiple']]
-            
-            fig_edge = go.Figure(go.Bar(
-                x=chart_df['Avg R-Multiple'],
-                y=chart_df['Tag / Strategy'],
-                orientation='h',
-                marker_color=colors,
-                text=chart_df['Avg R-Multiple'].apply(lambda x: f"{x:+.2f}R"),
-                textposition='auto',
-                insidetextfont=dict(color='white'),
-                outsidetextfont=dict(color='black')
-            ))
-            
-            fig_edge.update_layout(
-                title="Average Expectancy (R-Multiple) per Tag",
-                margin=dict(l=0, r=20, t=30, b=0),
-                height=max(250, 100 + (len(chart_df) * 35)), # Dynamic height based on tag count
-                xaxis=dict(title='Avg R-Multiple', zeroline=True, zerolinecolor='black', zerolinewidth=2),
-                yaxis=dict(title=''),
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-            exp_closed.plotly_chart(fig_edge, width="stretch")
-
-else:
-    exp_sec10.caption("No closed campaigns recorded yet.")
-    
-conn_journal.close()
 
 st.divider()
 
