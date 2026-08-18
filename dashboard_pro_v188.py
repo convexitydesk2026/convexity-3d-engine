@@ -814,10 +814,11 @@ def load_deployment_ledger():
     return df_ledger
 
 # --- UI RENDERING ---
-st.title("Estate Master Dashboard", anchor="top")
-st.markdown(f"**Data Pipeline:** Live IBKR Sync via SQLite (`{os.path.basename(DB_PATH)}`) • **Last Refresh:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-st.markdown(f"**Active Scripts:** `{active_scripts_str}`")
-st.divider()
+exp_top = st.expander("🔝 Estate Master Dashboard", expanded=False)
+exp_top.title("Estate Master Dashboard", anchor="top")
+exp_top.markdown(f"**Data Pipeline:** Live IBKR Sync via SQLite (`{os.path.basename(DB_PATH)}`) • **Last Refresh:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+exp_top.markdown(f"**Active Scripts:** `{active_scripts_str}`")
+exp_top.divider()
 
 global_df, global_metrics, silo_dfs, silo_metrics, pos_df, attr_df, balances_df, open_orders_df = load_and_process_data()
 
@@ -1344,7 +1345,7 @@ def col_html(val, good_thresh=None):
     return "color: #15803d;"
 
 # SECTION 0: EXECUTIVE BRIEFING (FOR TELEGRAM SCREENSHOTS)
-st.markdown("### 🔔 Executive Briefing & Actionable Alerts")
+exp_top.markdown("### 🔔 Executive Briefing & Actionable Alerts")
 alerts = {
     "critical": [],
     "warning": [],
@@ -1578,7 +1579,7 @@ has_alerts = any(len(cat) > 0 for cat in alerts.values())
 if has_alerts:
     if alerts["critical"]:
         alert_html = "".join([f"<li style='margin-bottom: 5px;'>{a}</li>" for a in alerts["critical"]])
-        st.markdown(f"""
+        exp_top.markdown(f"""
         <div style="background-color: #fef2f2; border-left: 6px solid #ef4444; padding: 15px; border-radius: 4px; color: #7f1d1d; font-size: 14px; margin-bottom: 15px;">
             <div style="font-weight: bold; margin-bottom: 8px; font-size: 15px; display: flex; align-items: center;">🚨 CRITICAL ACTION REQUIRED</div>
             <ul style="margin: 0; padding-left: 20px;">{alert_html}</ul>
@@ -1587,7 +1588,7 @@ if has_alerts:
 
     if alerts["warning"]:
         alert_html = "".join([f"<li style='margin-bottom: 5px;'>{a}</li>" for a in alerts["warning"]])
-        st.markdown(f"""
+        exp_top.markdown(f"""
         <div style="background-color: #fffbeb; border-left: 6px solid #f59e0b; padding: 15px; border-radius: 4px; color: #78350f; font-size: 14px; margin-bottom: 15px;">
             <div style="font-weight: bold; margin-bottom: 8px; font-size: 15px; display: flex; align-items: center;">⚠️ STRUCTURAL WARNINGS</div>
             <ul style="margin: 0; padding-left: 20px;">{alert_html}</ul>
@@ -1596,7 +1597,7 @@ if has_alerts:
         
     if alerts["opportunity"]:
         alert_html = "".join([f"<li style='margin-bottom: 5px;'>{a}</li>" for a in alerts["opportunity"]])
-        st.markdown(f"""
+        exp_top.markdown(f"""
         <div style="background-color: #f0fdf4; border-left: 6px solid #10b981; padding: 15px; border-radius: 4px; color: #064e3b; font-size: 14px; margin-bottom: 15px;">
             <div style="font-weight: bold; margin-bottom: 8px; font-size: 15px; display: flex; align-items: center;">🟢 TACTICAL OPPORTUNITIES</div>
             <ul style="margin: 0; padding-left: 20px;">{alert_html}</ul>
@@ -1605,7 +1606,7 @@ if has_alerts:
 
     if alerts["info"]:
         alert_html = "".join([f"<li style='margin-bottom: 5px;'>{a}</li>" for a in alerts["info"]])
-        st.markdown(f"""
+        exp_top.markdown(f"""
         <div style="background-color: #eff6ff; border-left: 6px solid #3b82f6; padding: 15px; border-radius: 4px; color: #1e3a8a; font-size: 14px; margin-bottom: 25px;">
             <div style="font-weight: bold; margin-bottom: 8px; font-size: 15px; display: flex; align-items: center;">ℹ️ SYSTEM INTELLIGENCE</div>
             <ul style="margin: 0; padding-left: 20px;">{alert_html}</ul>
@@ -1613,9 +1614,9 @@ if has_alerts:
         """.replace('\n', ''), unsafe_allow_html=True)
 
 else:
-    st.success("✅ All systems nominal. No actionable alerts at this time.")
+    exp_top.success("✅ All systems nominal. No actionable alerts at this time.")
 
-st.divider() 
+exp_top.divider() 
 
 # --- GLOBAL BETA-WEIGHTED DELTA CALCULATION (HOISTED FOR HUD) ---
 total_bw_delta = 0.0
@@ -1693,7 +1694,7 @@ hud_html = f"""
     </div>
 </div>
 """
-st.markdown(hud_html, unsafe_allow_html=True)
+exp_top.markdown(hud_html, unsafe_allow_html=True)
 
 # --- MASTER WEATHER STATION ---
 live_alpha_gear = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
@@ -1756,7 +1757,7 @@ weather_html = f"""
     </div>
 </div>
 """
-st.markdown(weather_html, unsafe_allow_html=True)
+exp_top.markdown(weather_html, unsafe_allow_html=True)
 
 # --- SECTION 0: UNIFIED ESTATE CALENDAR ---
 st.subheader("0. Unified Estate Calendar & Action Items", anchor="sec0")
