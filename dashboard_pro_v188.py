@@ -293,9 +293,9 @@ with st.sidebar:
     st.markdown("""
     - [🔝 Estate Master Dashboard](#top)
     - [Master Estate Aggregation](#master-agg)
-    - [Estate Calendars](#sec1b)
+    - [Calendars](#sec1b)
     - [Market Flow](#sec1c)
-    - [Estate Capital Breakdown](#sec1)
+    - [Capital Breakdown](#sec1)
     - [4. PnL Attribution & Capital Velocity](#sec4)
     - [5. Deployment Command Center (Transition to 60/40)](#sec5)
     - [6. Capital Deployment & Margin Capacity Tracker](#sec6)
@@ -1870,8 +1870,8 @@ for idx, acc in enumerate(SILO_MAP.keys()):
 
 st.divider()
 
-# --- SECTION 1B: ESTATE CALENDARS ---
-st.subheader("Estate Calendars", anchor="sec1b")
+# --- SECTION 1B: CALENDARS ---
+st.subheader("Calendars", anchor="sec1b")
 exp_sec1b = st.expander("🔥 Month / Year Return Heatmap", expanded=False)
 if not global_df.empty:
     df_h = global_df.copy()
@@ -1932,7 +1932,7 @@ else:
     exp_sec1b.info("Not enough data to generate Return Heatmap.")
 
 if not global_df.empty:
-    with st.expander("📅 Daily / Weekly PnL", expanded=False):
+    with st.expander("📅 Day / Week / Month PnL", expanded=False):
         cal_df = global_df[['date', 'daily_pnl', 'daily_return']].copy()
         cal_df['date_str'] = cal_df['date'].dt.strftime('%Y-%m-%d')
         cal_dict = cal_df.set_index('date_str').to_dict('index')
@@ -2205,7 +2205,7 @@ st.divider()
 # --- SECTION 1C: MARKET FLOW ---
 st.subheader("Market Flow", anchor="sec1c")
 
-with st.expander("🗺️ Expand S&P 500 Market Cap Heatmap (TradingView)", expanded=False):
+with st.expander("🗺️ S&P 500 Market Cap Heatmap", expanded=False):
     tv_html = """<!DOCTYPE html>
     <html>
     <head><style>body, html {margin: 0; padding: 0; height: 100%; overflow: hidden;}</style></head>
@@ -2237,7 +2237,7 @@ with st.expander("🗺️ Expand S&P 500 Market Cap Heatmap (TradingView)", expa
     b64_tv = base64.b64encode(tv_html.encode('utf-8')).decode('utf-8')
     st.markdown(f'<iframe src="data:text/html;base64,{b64_tv}" width="100%" height="600" style="border:none;"></iframe>', unsafe_allow_html=True)
 
-with st.expander("📊 Expand Institutional Flow Dashboard", expanded=False):
+with st.expander("📊 Institutional Flow", expanded=False):
     # Feature: One-Click PDF Download
     pdf_path = os.path.join(TARGET_DIR, "market_flow_report.pdf")
     if os.path.exists(pdf_path):
@@ -2263,8 +2263,8 @@ with st.expander("📊 Expand Institutional Flow Dashboard", expanded=False):
 
 
 
-# --- SECTION 3: ESTATE CAPITAL BREAKDOWN ---
-st.subheader("Estate Capital Breakdown", anchor="sec1")
+# --- SECTION 3: CAPITAL BREAKDOWN ---
+st.subheader("Capital Breakdown", anchor="sec1")
 exp_sec1 = st.expander("🏦 View GAAP Balance Sheet & Allocation", expanded=False)
 col_bar, col_pie, col_sector = exp_sec1.columns(3)
 
