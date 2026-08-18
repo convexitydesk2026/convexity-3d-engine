@@ -1876,7 +1876,7 @@ st.divider()
 
 # --- SECTION 1B: ESTATE CALENDARS ---
 st.subheader("Estate Calendars", anchor="sec1b")
-exp_sec1b = st.expander("🔥 View Institutional Return Heatmap", expanded=False)
+exp_sec1b = st.expander("🔥 Month / Year Return Heatmap", expanded=False)
 if not global_df.empty:
     df_h = global_df.copy()
     df_h['Year'] = df_h['date'].dt.year
@@ -1936,7 +1936,7 @@ else:
     exp_sec1b.info("Not enough data to generate Return Heatmap.")
 
 if not global_df.empty:
-    with st.expander("📅 View Granular Daily PnL Calendar", expanded=False):
+    with st.expander("📅 Daily / Weekly PnL", expanded=False):
         cal_df = global_df[['date', 'daily_pnl', 'daily_return']].copy()
         cal_df['date_str'] = cal_df['date'].dt.strftime('%Y-%m-%d')
         cal_dict = cal_df.set_index('date_str').to_dict('index')
@@ -2124,7 +2124,7 @@ for ev in calendar_events:
         next_event = ev
         break
         
-with st.expander("📅 View Unified Estate Calendar & Action Items", expanded=False):
+with st.expander("📅 Actionable Items", expanded=False):
     if next_event:
         days_until = (next_event['date'] - today_date).days
         if days_until <= 3:
