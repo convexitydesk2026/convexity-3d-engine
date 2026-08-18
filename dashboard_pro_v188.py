@@ -294,7 +294,7 @@ with st.sidebar:
     - [🔝 Estate Master Dashboard](#top)
     - [Master Estate Aggregation](#master-agg)
     - [Estate Calendars](#sec1b)
-    - [1C. Global Market Flow & Institutional Rotation](#sec1c)
+    - [Market Flow](#sec1c)
     - [Estate Capital Breakdown](#sec1)
     - [4. PnL Attribution & Capital Velocity](#sec4)
     - [5. Deployment Command Center (Transition to 60/40)](#sec5)
@@ -2202,19 +2202,8 @@ with st.expander("📅 Actionable Items", expanded=False):
 
 st.divider()
 
-# --- SECTION 1C: GLOBAL MARKET FLOW & INSTITUTIONAL ROTATION ---
-st.subheader("1C. Global Market Flow & Institutional Rotation", anchor="sec1c")
-
-# Feature: One-Click PDF Download
-pdf_path = os.path.join(TARGET_DIR, "market_flow_report.pdf")
-if os.path.exists(pdf_path):
-    with open(pdf_path, "rb") as pdf_file:
-        st.download_button(
-            label="📄 Download Institutional Flow Report (PDF)",
-            data=pdf_file,
-            file_name=f"Estate_Market_Flow_{datetime.date.today().isoformat()}.pdf",
-            mime="application/pdf"
-        )
+# --- SECTION 1C: MARKET FLOW ---
+st.subheader("Market Flow", anchor="sec1c")
 
 with st.expander("🗺️ Expand S&P 500 Market Cap Heatmap (TradingView)", expanded=False):
     tv_html = """<!DOCTYPE html>
@@ -2249,6 +2238,16 @@ with st.expander("🗺️ Expand S&P 500 Market Cap Heatmap (TradingView)", expa
     st.markdown(f'<iframe src="data:text/html;base64,{b64_tv}" width="100%" height="600" style="border:none;"></iframe>', unsafe_allow_html=True)
 
 with st.expander("📊 Expand Institutional Flow Dashboard", expanded=False):
+    # Feature: One-Click PDF Download
+    pdf_path = os.path.join(TARGET_DIR, "market_flow_report.pdf")
+    if os.path.exists(pdf_path):
+        with open(pdf_path, "rb") as pdf_file:
+            st.download_button(
+                label="📄 Download Institutional Flow Report (PDF)",
+                data=pdf_file,
+                file_name=f"Estate_Market_Flow_{datetime.date.today().isoformat()}.pdf",
+                mime="application/pdf"
+            )
 
     html_path = os.path.join(TARGET_DIR, "market_flow_report.html")
     if os.path.exists(html_path):
