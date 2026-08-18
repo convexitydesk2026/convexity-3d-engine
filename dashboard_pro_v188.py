@@ -301,7 +301,6 @@ with st.sidebar:
     - [6. Capital Deployment & Margin Capacity Tracker](#sec6)
     - [6B. Advanced Portfolio Risk Metrics](#sec6b)
     - [6C. The S.W.A.N. (Sleep Well At Night) Stress Test](#sec6c)
-    - [7. The Master Instrument Matrix (Tax, Alpha, & Sharpe Grading)](#sec7)
     - [8. Estate Montecarlo PnL Simulation - Projections vs History](#sec8)
     - [9A. The Master Options Matrix & CFO Briefing](#sec9a)
     - [9B. The Options Performance Ledger & Topography Engine](#sec9b)
@@ -3769,6 +3768,110 @@ else:
     
 conn_journal.close()
 
+matrix_data = [
+    {"Instrument": "USD Cash", "Type": "Currency", "Risk Profile": "Risk-Free", "Alpha Potential": "Zero", "Sharpe Impact": "Stabilizer", "Trading Strategy": "Liquidity", "Jurisdiction": "US (IBKR)", "Tax Treatment": "Exempt (Bank Deposit)", "CIO Min Alloc. %": "1%", "CIO Max Alloc. %": "100%", "CIO Grading": "Splendid", "Noteworthy Comments": "Uninvested USD held in IBKR. Mandatory margin collateral."},
+    {"Instrument": "IB01", "Type": "UCITS ETF", "Risk Profile": "Risk-Free", "Alpha Potential": "Zero", "Sharpe Impact": "High", "Trading Strategy": "Collateral", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "10%", "CIO Max Alloc. %": "100%", "CIO Grading": "Splendid", "Noteworthy Comments": "Irish-domiciled short-term US Treasury fund. Accumulates ~4.5% tax-free."},
+    {"Instrument": "Deep OTM Tail Hedge", "Type": "Index Option", "Risk Profile": "Defensive", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "Negative in Bull / Parabolic in Bear", "Trading Strategy": "Black Swan Insurance", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "2%", "CIO Grading": "Great", "Noteworthy Comments": "90-120 DTE Puts (Delta < 5). Triggered by VIX crash or Red Regime. Budgeted strictly from 10% of collected VRP."},
+    {"Instrument": "XSP Put Spreads", "Type": "Index Option", "Risk Profile": "Moderate", "Alpha Potential": "High (VRP)", "Sharpe Impact": "High", "Trading Strategy": "Weekly Income", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "20%", "CIO Grading": "Splendid", "Noteworthy Comments": "Cash-settled S&P 500 options. 100% safe from IRS."},
+    {"Instrument": "XND Put Spreads", "Type": "Index Option", "Risk Profile": "Mod/High", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Satellite Income", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Great", "Noteworthy Comments": "Micro-Nasdaq 100. Cash-settled. IRS Safe. Higher volatility than XSP."},
+    {"Instrument": "CSPX", "Type": "UCITS ETF", "Risk Profile": "Moderate", "Alpha Potential": "Zero", "Sharpe Impact": "Baseline", "Trading Strategy": "Long Term", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "60%", "CIO Grading": "Great", "Noteworthy Comments": "Irish-domiciled S&P 500. Shields against 40% Estate Tax."},
+    {"Instrument": "CNDX", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Long Term", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "40%", "CIO Grading": "Great", "Noteworthy Comments": "Irish-domiciled Nasdaq 100. Shields against 40% Estate Tax. High beta tech exposure."},
+    {"Instrument": "ITWN (Taiwan)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
+    {"Instrument": "CSKR (Korea)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
+    {"Instrument": "CNYA (China)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Volatile", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
+    {"Instrument": "SGLN / IGLN (Gold)", "Type": "UCITS ETC", "Risk Profile": "Moderate", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "Stabilizer", "Trading Strategy": "Tail Hedge", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Good", "Noteworthy Comments": "Geopolitical crisis hedge. Rises during interest rate cuts and wars."},
+    {"Instrument": "BTC/ETH ETPs", "Type": "Crypto ETP", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Volatile", "Trading Strategy": "Uncorrelated", "Jurisdiction": "Europe (Jersey/CH)", "Tax Treatment": "Exempt (Offshore Wrapper)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "5%", "CIO Grading": "Good", "Noteworthy Comments": "Offshore crypto wrappers (e.g. CoinShares). IRS safe spot exposure."},
+    {"Instrument": "US Tech CFDs", "Type": "OTC Contract", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "UK/Offshore", "Tax Treatment": "Exempt (OTC Derivative)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "3%", "CIO Grading": "Good", "Noteworthy Comments": "Synthetic derivatives. 0% IRS risk. Quarantined strictly based on cash buffers to prevent PDT locks."},
+    {"Instrument": "International Stocks", "Type": "Direct Equity", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "Europe/Asia", "Tax Treatment": "Exempt", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "3%", "CIO Grading": "Good", "Noteworthy Comments": "Safe from IRS. Suffers from wider bid/ask spreads compared to US market."},
+    {"Instrument": "/MES Put Spreads", "Type": "Futures Option", "Risk Profile": "Moderate", "Alpha Potential": "Highest (SPAN)", "Sharpe Impact": "High", "Trading Strategy": "Capital Efficiency", "Jurisdiction": "US (CME)", "Tax Treatment": "Exempt (Section 1256)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "25%", "CIO Grading": "Contingent", "Noteworthy Comments": "Contingent on mastering XSP mechanics. SPAN margin halves collateral, doubling ROC."},
+    {"Instrument": "Managed Futures (CTAs)", "Type": "UCITS Fund", "Risk Profile": "Moderate", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "High (Uncorrel.)", "Trading Strategy": "Trend Following", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Contingent", "Noteworthy Comments": "Contingent on risk tolerance change. Shorts commodities & bonds to protect during crashes."},
+    {"Instrument": "XSP LEAPS", "Type": "Index Option", "Risk Profile": "Aggressive", "Alpha Potential": "Low", "Sharpe Impact": "Negative", "Trading Strategy": "Leverage", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Bad", "Noteworthy Comments": "IRS safe, but mathematical drag of Theta and lost dividends destroys edge."},
+    {"Instrument": "Physical US Stocks", "Type": "Stock", "Risk Profile": "Extreme", "Alpha Potential": "High", "Sharpe Impact": "Baseline", "Trading Strategy": "Swing", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Triggers 40% US Estate Tax and 30% Dividend Withholding."},
+    {"Instrument": "US Spot BTC/ETH", "Type": "US ETF", "Risk Profile": "Extreme", "Alpha Potential": "N/A", "Sharpe Impact": "N/A", "Trading Strategy": "N/A", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Standard ETFs (IBIT/FBTC) are US-situs property. Will trigger Estate Tax confiscation."},
+    {"Instrument": "TQQQ", "Type": "Physical ETF", "Risk Profile": "Extreme", "Alpha Potential": "Negative", "Sharpe Impact": "Negative", "Trading Strategy": "Speculation", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Widow-maker. Combines IRS Tax Trap with massive Beta Slippage decay."},
+    {"Instrument": "Accruals, Unsettled & FX", "Type": "Reconciliation", "Risk Profile": "N/A", "Alpha Potential": "N/A", "Sharpe Impact": "N/A", "Trading Strategy": "Accounting", "Jurisdiction": "N/A", "Tax Treatment": "N/A", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Splendid", "Noteworthy Comments": "Dynamic balancing metric to reconcile aggregate physical Net Liq vs discrete position sums."}
+]
+
+df_matrix = pd.DataFrame(matrix_data)
+alloc_map = {}
+
+if not pos_df.empty:
+    for i, r in pos_df.iterrows():
+        ac = r['asset_class']
+        if ac == 'Crypto': alloc_map['BTC/ETH ETPs'] = alloc_map.get('BTC/ETH ETPs', 0) + r['market_value']
+        elif ac == 'Gold': alloc_map['SGLN / IGLN (Gold)'] = alloc_map.get('SGLN / IGLN (Gold)', 0) + r['market_value']
+        elif ac == 'Cash': alloc_map['USD Cash'] = alloc_map.get('USD Cash', 0) + r['market_value']
+        elif ac == 'International Stocks': 
+            alloc_map['International Stocks'] = alloc_map.get('International Stocks', 0) + r['market_value']
+        elif ac == 'US Tech CFDs': 
+            alloc_map['US Tech CFDs'] = alloc_map.get('US Tech CFDs', 0) + r['market_value']
+        elif ac == 'Active Swing': alloc_map['International Stocks'] = alloc_map.get('International Stocks', 0) + r['market_value']
+        elif ac == 'Opt Liab':
+            if 'XND' in r['symbol']: alloc_map['XND Put Spreads'] = alloc_map.get('XND Put Spreads', 0) + r['market_value']
+            else: alloc_map['XSP Put Spreads'] = alloc_map.get('XSP Put Spreads', 0) + r['market_value']
+        elif ac == 'Tail Hedge': alloc_map['Deep OTM Tail Hedge'] = alloc_map.get('Deep OTM Tail Hedge', 0) + r['market_value']
+        else: alloc_map[ac] = alloc_map.get(ac, 0) + r['market_value']
+    
+def get_pct(inst):
+    if inst == 'Accruals, Unsettled & FX': return 0.0 
+    if inst == 'ITWN (Taiwan)': val = alloc_map.get('ITWN', 0)
+    elif inst == 'CSKR (Korea)': val = alloc_map.get('CSKR', 0)
+    elif inst == 'CNYA (China)': val = alloc_map.get('CNYA', 0)
+    elif inst == 'SGLN / IGLN (Gold)': val = alloc_map.get('SGLN / IGLN (Gold)', 0)
+    else: val = alloc_map.get(inst, 0)
+    return (val / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+
+df_matrix.insert(9, "Current Global Alloc. %", df_matrix['Instrument'].apply(get_pct))
+
+raw_sum = df_matrix['Current Global Alloc. %'].sum()
+df_matrix.loc[df_matrix['Instrument'] == 'Accruals, Unsettled & FX', 'Current Global Alloc. %'] = 100.0 - raw_sum
+
+def color_grading(val):
+    if val == "Splendid": return 'background-color: #dcfce7; color: #166534; font-weight: bold'
+    if val == "Great": return 'background-color: #ecfccb; color: #15803d; font-weight: bold'
+    if val == "Good": return 'background-color: #fef9c3; color: #4d7c0f; font-weight: bold'
+    if val == "Contingent": return 'background-color: #e0e7ff; color: #1e40af; font-weight: bold'
+    if val == "Bad": return 'background-color: #ffedd5; color: #b91c1c; font-weight: bold'
+    if val == "Avoid": return 'background-color: #fecaca; color: #991b1b; font-weight: bold'
+    return ''
+
+with st.expander("📊 Instrument Matrix & Tax Architecture", expanded=False):
+    st.dataframe(
+        df_matrix.style.format({'Current Global Alloc. %': '{:.2f}%'})
+                       .map(color_grading, subset=['CIO Grading'])
+                       .set_properties(**{'background-color': '#eff6ff', 'color': '#1d4ed8', 'font-weight': 'bold'}, subset=['Current Global Alloc. %']), 
+        hide_index=True, 
+        width="stretch"
+    )
+
+    option_instruments = ["XSP Put Spreads", "XND Put Spreads", "/MES Put Spreads", "XSP LEAPS"]
+    opt_liab = df_matrix[df_matrix['Instrument'].isin(option_instruments)]['Current Global Alloc. %'].sum()
+    gross_phys = df_matrix[~df_matrix['Instrument'].isin(option_instruments)]['Current Global Alloc. %'].sum()
+    true_net = gross_phys + opt_liab
+
+    col1, col2, col3 = st.columns([6, 2, 4])
+    with col2: 
+        st.markdown(
+            "<div style='text-align: right; font-size: 12px; font-weight: bold;'>"
+            "GROSS PHYSICAL ASSETS:<br>"
+            "<span style='color: #ef4444'>OPTIONS LIABILITY DRAG:</span><br>"
+            "TRUE NET ESTATE CHECKSUM:"
+            "</div>", 
+            unsafe_allow_html=True
+        )
+    with col3: 
+        st.markdown(
+            f"<div style='text-align: left; font-size: 12px; font-weight: bold; color: #1d4ed8;'>"
+            f"{gross_phys:.2f}%<br>"
+            f"<span style='color: #ef4444'>{opt_liab:.2f}%</span><br>"
+            f"<span style='color: black'>{true_net:.2f}%</span> &nbsp;&nbsp;&nbsp; "
+            f"<span style='font-size: 10px; color: gray; font-weight: normal'>Must exactly equal 100.00%</span>"
+            f"</div>", 
+            unsafe_allow_html=True
+        )
+
+
+
 
 
 # --- SECTION 4: PNL ATTRIBUTION & VELOCITY ---
@@ -4481,111 +4584,6 @@ with col_swan_text:
     exp_sec6c.markdown(swan_html, unsafe_allow_html=True)
 
 st.divider()
-
-# --- SECTION 9: THE MASTER MATRIX ---
-
-st.subheader("7. The Master Instrument Matrix (Tax, Alpha, & Sharpe Grading)", anchor="sec7")
-matrix_data = [
-    {"Instrument": "USD Cash", "Type": "Currency", "Risk Profile": "Risk-Free", "Alpha Potential": "Zero", "Sharpe Impact": "Stabilizer", "Trading Strategy": "Liquidity", "Jurisdiction": "US (IBKR)", "Tax Treatment": "Exempt (Bank Deposit)", "CIO Min Alloc. %": "1%", "CIO Max Alloc. %": "100%", "CIO Grading": "Splendid", "Noteworthy Comments": "Uninvested USD held in IBKR. Mandatory margin collateral."},
-    {"Instrument": "IB01", "Type": "UCITS ETF", "Risk Profile": "Risk-Free", "Alpha Potential": "Zero", "Sharpe Impact": "High", "Trading Strategy": "Collateral", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "10%", "CIO Max Alloc. %": "100%", "CIO Grading": "Splendid", "Noteworthy Comments": "Irish-domiciled short-term US Treasury fund. Accumulates ~4.5% tax-free."},
-    {"Instrument": "Deep OTM Tail Hedge", "Type": "Index Option", "Risk Profile": "Defensive", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "Negative in Bull / Parabolic in Bear", "Trading Strategy": "Black Swan Insurance", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "2%", "CIO Grading": "Great", "Noteworthy Comments": "90-120 DTE Puts (Delta < 5). Triggered by VIX crash or Red Regime. Budgeted strictly from 10% of collected VRP."},
-    {"Instrument": "XSP Put Spreads", "Type": "Index Option", "Risk Profile": "Moderate", "Alpha Potential": "High (VRP)", "Sharpe Impact": "High", "Trading Strategy": "Weekly Income", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "20%", "CIO Grading": "Splendid", "Noteworthy Comments": "Cash-settled S&P 500 options. 100% safe from IRS."},
-    {"Instrument": "XND Put Spreads", "Type": "Index Option", "Risk Profile": "Mod/High", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Satellite Income", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Great", "Noteworthy Comments": "Micro-Nasdaq 100. Cash-settled. IRS Safe. Higher volatility than XSP."},
-    {"Instrument": "CSPX", "Type": "UCITS ETF", "Risk Profile": "Moderate", "Alpha Potential": "Zero", "Sharpe Impact": "Baseline", "Trading Strategy": "Long Term", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "60%", "CIO Grading": "Great", "Noteworthy Comments": "Irish-domiciled S&P 500. Shields against 40% Estate Tax."},
-    {"Instrument": "CNDX", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Long Term", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "40%", "CIO Grading": "Great", "Noteworthy Comments": "Irish-domiciled Nasdaq 100. Shields against 40% Estate Tax. High beta tech exposure."},
-    {"Instrument": "ITWN (Taiwan)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
-    {"Instrument": "CSKR (Korea)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Moderate", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
-    {"Instrument": "CNYA (China)", "Type": "UCITS ETF", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Volatile", "Trading Strategy": "Momentum", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Great", "Noteworthy Comments": "Geographic tech alpha via Irish wrapper."},
-    {"Instrument": "SGLN / IGLN (Gold)", "Type": "UCITS ETC", "Risk Profile": "Moderate", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "Stabilizer", "Trading Strategy": "Tail Hedge", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "10%", "CIO Grading": "Good", "Noteworthy Comments": "Geopolitical crisis hedge. Rises during interest rate cuts and wars."},
-    {"Instrument": "BTC/ETH ETPs", "Type": "Crypto ETP", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Volatile", "Trading Strategy": "Uncorrelated", "Jurisdiction": "Europe (Jersey/CH)", "Tax Treatment": "Exempt (Offshore Wrapper)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "5%", "CIO Grading": "Good", "Noteworthy Comments": "Offshore crypto wrappers (e.g. CoinShares). IRS safe spot exposure."},
-    {"Instrument": "US Tech CFDs", "Type": "OTC Contract", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "UK/Offshore", "Tax Treatment": "Exempt (OTC Derivative)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "3%", "CIO Grading": "Good", "Noteworthy Comments": "Synthetic derivatives. 0% IRS risk. Quarantined strictly based on cash buffers to prevent PDT locks."},
-    {"Instrument": "International Stocks", "Type": "Direct Equity", "Risk Profile": "Aggressive", "Alpha Potential": "High", "Sharpe Impact": "Negative", "Trading Strategy": "Swing Trading", "Jurisdiction": "Europe/Asia", "Tax Treatment": "Exempt", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "3%", "CIO Grading": "Good", "Noteworthy Comments": "Safe from IRS. Suffers from wider bid/ask spreads compared to US market."},
-    {"Instrument": "/MES Put Spreads", "Type": "Futures Option", "Risk Profile": "Moderate", "Alpha Potential": "Highest (SPAN)", "Sharpe Impact": "High", "Trading Strategy": "Capital Efficiency", "Jurisdiction": "US (CME)", "Tax Treatment": "Exempt (Section 1256)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "25%", "CIO Grading": "Contingent", "Noteworthy Comments": "Contingent on mastering XSP mechanics. SPAN margin halves collateral, doubling ROC."},
-    {"Instrument": "Managed Futures (CTAs)", "Type": "UCITS Fund", "Risk Profile": "Moderate", "Alpha Potential": "Crisis Alpha", "Sharpe Impact": "High (Uncorrel.)", "Trading Strategy": "Trend Following", "Jurisdiction": "Ireland", "Tax Treatment": "Exempt (Irish Domicile)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "15%", "CIO Grading": "Contingent", "Noteworthy Comments": "Contingent on risk tolerance change. Shorts commodities & bonds to protect during crashes."},
-    {"Instrument": "XSP LEAPS", "Type": "Index Option", "Risk Profile": "Aggressive", "Alpha Potential": "Low", "Sharpe Impact": "Negative", "Trading Strategy": "Leverage", "Jurisdiction": "US (Cboe)", "Tax Treatment": "Exempt (Cash-Settled)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Bad", "Noteworthy Comments": "IRS safe, but mathematical drag of Theta and lost dividends destroys edge."},
-    {"Instrument": "Physical US Stocks", "Type": "Stock", "Risk Profile": "Extreme", "Alpha Potential": "High", "Sharpe Impact": "Baseline", "Trading Strategy": "Swing", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Triggers 40% US Estate Tax and 30% Dividend Withholding."},
-    {"Instrument": "US Spot BTC/ETH", "Type": "US ETF", "Risk Profile": "Extreme", "Alpha Potential": "N/A", "Sharpe Impact": "N/A", "Trading Strategy": "N/A", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Standard ETFs (IBIT/FBTC) are US-situs property. Will trigger Estate Tax confiscation."},
-    {"Instrument": "TQQQ", "Type": "Physical ETF", "Risk Profile": "Extreme", "Alpha Potential": "Negative", "Sharpe Impact": "Negative", "Trading Strategy": "Speculation", "Jurisdiction": "US", "Tax Treatment": "LETHAL (40% Estate Tax)", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Avoid", "Noteworthy Comments": "LETHAL. Widow-maker. Combines IRS Tax Trap with massive Beta Slippage decay."},
-    {"Instrument": "Accruals, Unsettled & FX", "Type": "Reconciliation", "Risk Profile": "N/A", "Alpha Potential": "N/A", "Sharpe Impact": "N/A", "Trading Strategy": "Accounting", "Jurisdiction": "N/A", "Tax Treatment": "N/A", "CIO Min Alloc. %": "0%", "CIO Max Alloc. %": "0%", "CIO Grading": "Splendid", "Noteworthy Comments": "Dynamic balancing metric to reconcile aggregate physical Net Liq vs discrete position sums."}
-]
-
-df_matrix = pd.DataFrame(matrix_data)
-alloc_map = {}
-
-if not pos_df.empty:
-    for i, r in pos_df.iterrows():
-        ac = r['asset_class']
-        if ac == 'Crypto': alloc_map['BTC/ETH ETPs'] = alloc_map.get('BTC/ETH ETPs', 0) + r['market_value']
-        elif ac == 'Gold': alloc_map['SGLN / IGLN (Gold)'] = alloc_map.get('SGLN / IGLN (Gold)', 0) + r['market_value']
-        elif ac == 'Cash': alloc_map['USD Cash'] = alloc_map.get('USD Cash', 0) + r['market_value']
-        elif ac == 'International Stocks': 
-            alloc_map['International Stocks'] = alloc_map.get('International Stocks', 0) + r['market_value']
-        elif ac == 'US Tech CFDs': 
-            alloc_map['US Tech CFDs'] = alloc_map.get('US Tech CFDs', 0) + r['market_value']
-        elif ac == 'Active Swing': alloc_map['International Stocks'] = alloc_map.get('International Stocks', 0) + r['market_value']
-        elif ac == 'Opt Liab':
-            if 'XND' in r['symbol']: alloc_map['XND Put Spreads'] = alloc_map.get('XND Put Spreads', 0) + r['market_value']
-            else: alloc_map['XSP Put Spreads'] = alloc_map.get('XSP Put Spreads', 0) + r['market_value']
-        elif ac == 'Tail Hedge': alloc_map['Deep OTM Tail Hedge'] = alloc_map.get('Deep OTM Tail Hedge', 0) + r['market_value']
-        else: alloc_map[ac] = alloc_map.get(ac, 0) + r['market_value']
-    
-def get_pct(inst):
-    if inst == 'Accruals, Unsettled & FX': return 0.0 
-    if inst == 'ITWN (Taiwan)': val = alloc_map.get('ITWN', 0)
-    elif inst == 'CSKR (Korea)': val = alloc_map.get('CSKR', 0)
-    elif inst == 'CNYA (China)': val = alloc_map.get('CNYA', 0)
-    elif inst == 'SGLN / IGLN (Gold)': val = alloc_map.get('SGLN / IGLN (Gold)', 0)
-    else: val = alloc_map.get(inst, 0)
-    return (val / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
-
-df_matrix.insert(9, "Current Global Alloc. %", df_matrix['Instrument'].apply(get_pct))
-
-raw_sum = df_matrix['Current Global Alloc. %'].sum()
-df_matrix.loc[df_matrix['Instrument'] == 'Accruals, Unsettled & FX', 'Current Global Alloc. %'] = 100.0 - raw_sum
-
-def color_grading(val):
-    if val == "Splendid": return 'background-color: #dcfce7; color: #166534; font-weight: bold'
-    if val == "Great": return 'background-color: #ecfccb; color: #15803d; font-weight: bold'
-    if val == "Good": return 'background-color: #fef9c3; color: #4d7c0f; font-weight: bold'
-    if val == "Contingent": return 'background-color: #e0e7ff; color: #1e40af; font-weight: bold'
-    if val == "Bad": return 'background-color: #ffedd5; color: #b91c1c; font-weight: bold'
-    if val == "Avoid": return 'background-color: #fecaca; color: #991b1b; font-weight: bold'
-    return ''
-
-with st.expander("📊 Click to expand the Institutional Instrument Matrix & Tax Architecture", expanded=False):
-    st.dataframe(
-        df_matrix.style.format({'Current Global Alloc. %': '{:.2f}%'})
-                       .map(color_grading, subset=['CIO Grading'])
-                       .set_properties(**{'background-color': '#eff6ff', 'color': '#1d4ed8', 'font-weight': 'bold'}, subset=['Current Global Alloc. %']), 
-        hide_index=True, 
-        width="stretch"
-    )
-
-    option_instruments = ["XSP Put Spreads", "XND Put Spreads", "/MES Put Spreads", "XSP LEAPS"]
-    opt_liab = df_matrix[df_matrix['Instrument'].isin(option_instruments)]['Current Global Alloc. %'].sum()
-    gross_phys = df_matrix[~df_matrix['Instrument'].isin(option_instruments)]['Current Global Alloc. %'].sum()
-    true_net = gross_phys + opt_liab
-
-    col1, col2, col3 = st.columns([6, 2, 4])
-    with col2: 
-        st.markdown(
-            "<div style='text-align: right; font-size: 12px; font-weight: bold;'>"
-            "GROSS PHYSICAL ASSETS:<br>"
-            "<span style='color: #ef4444'>OPTIONS LIABILITY DRAG:</span><br>"
-            "TRUE NET ESTATE CHECKSUM:"
-            "</div>", 
-            unsafe_allow_html=True
-        )
-    with col3: 
-        st.markdown(
-            f"<div style='text-align: left; font-size: 12px; font-weight: bold; color: #1d4ed8;'>"
-            f"{gross_phys:.2f}%<br>"
-            f"<span style='color: #ef4444'>{opt_liab:.2f}%</span><br>"
-            f"<span style='color: black'>{true_net:.2f}%</span> &nbsp;&nbsp;&nbsp; "
-            f"<span style='font-size: 10px; color: gray; font-weight: normal'>Must exactly equal 100.00%</span>"
-            f"</div>", 
-            unsafe_allow_html=True
-        )
 
 st.divider()
 
