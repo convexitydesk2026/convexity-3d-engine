@@ -299,7 +299,6 @@ with st.sidebar:
     - [6. Capital Deployment & Margin Capacity Tracker](#sec6)
     - [6B. Advanced Portfolio Risk Metrics](#sec6b)
     - [6C. The S.W.A.N. (Sleep Well At Night) Stress Test](#sec6c)
-    - [8. Estate Montecarlo PnL Simulation - Projections vs History](#sec8)
     - [9A. The Master Options Matrix & CFO Briefing](#sec9a)
     - [9B. The Options Performance Ledger & Topography Engine](#sec9b)
     - [100. Project Management & Sprint Tracker](#sec100)
@@ -2262,6 +2261,81 @@ with st.expander("📊 Institutional Flow", expanded=False):
 
 # --- SECTION 3: CAPITAL BREAKDOWN ---
 st.subheader("Capital Breakdown", anchor="sec1")
+
+exp_sec8 = st.expander("🎲 Montecarlo PnL Simulation", expanded=False)
+daily_pnl_array = global_df['daily_pnl'].dropna().values
+sim_length = len(daily_pnl_array)
+
+if sim_length > 0:
+    cum_sim, max_dds, mc_avg_dd, mc_best_dd, mc_worst_dd, mc_avg_path = generate_mc_paths(daily_pnl_array)
+    
+    nav_base = global_metrics['nav'] if global_metrics['nav'] > 0 else 1
+    
+    orig_cum = np.insert(np.cumsum(daily_pnl_array), 0, 0)
+    orig_peaks = np.maximum.accumulate(orig_cum)
+    orig_dd = np.max(orig_peaks - orig_cum)
+    
+    best_idx = np.argmax(cum_sim[:, -1])
+    worst_idx = np.argmin(cum_sim[:, -1])
+    
+    col_mc_chart, col_mc_leg = exp_sec8.columns([0.85, 0.15])
+    
+    with col_mc_chart:
+        mc_fig = go.Figure()
+        
+        spaghetti_colors = [
+            'rgba(148, 163, 184, 0.25)', 'rgba(100, 116, 139, 0.25)', 
+            'rgba(71, 85, 105, 0.25)', 'rgba(56, 189, 248, 0.15)', 'rgba(14, 165, 233, 0.15)'
+        ]
+        
+        for i in range(200):
+            mc_fig.add_trace(go.Scatter(
+                y=cum_sim[i], mode='lines', line=dict(color=random.choice(spaghetti_colors), width=1.5), showlegend=False, hoverinfo='skip'
+            ))
+        
+        mc_fig.add_trace(go.Scatter(y=cum_sim[best_idx], name='Best Case', mode='lines', line=dict(color='#166534', width=4.5)))
+        mc_fig.add_trace(go.Scatter(y=cum_sim[worst_idx], name='Worst Case', mode='lines', line=dict(color='#991b1b', width=4.5)))
+        mc_fig.add_trace(go.Scatter(y=mc_avg_path, name='Statistically Expected (Mean)', mode='lines', line=dict(color='blue', width=6)))
+        mc_fig.add_trace(go.Scatter(y=orig_cum, name='Original Realized History', mode='lines', line=dict(color='black', width=9)))
+        
+        last_x = sim_length
+        mc_fig.add_annotation(x=last_x, y=cum_sim[best_idx][-1], text=f"Best: ${cum_sim[best_idx][-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='#166534', font=dict(color='white', size=11))
+        mc_fig.add_annotation(x=last_x, y=cum_sim[worst_idx][-1], text=f"Worst: ${cum_sim[worst_idx][-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='#991b1b', font=dict(color='white', size=11))
+        mc_fig.add_annotation(x=last_x, y=mc_avg_path[-1], text=f"Expected: ${mc_avg_path[-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='blue', font=dict(color='white', size=11))
+        mc_fig.add_annotation(x=last_x, y=orig_cum[-1], text=f"Original: ${orig_cum[-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='black', font=dict(color='white', size=11))
+        
+        mc_fig.update_layout(
+            height=800, margin=dict(l=20, r=80, t=30, b=20), plot_bgcolor='rgba(0,0,0,0)', 
+            xaxis_title='Trading Days Forward', 
+            yaxis=dict(title='Cumulative Net Profit (USD)', showgrid=True, gridcolor='LightGray', zeroline=True, zerolinecolor='black', zerolinewidth=1, layer='above traces'), 
+            xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray', layer='above traces'),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(mc_fig, width="stretch")
+        
+    with col_mc_leg:
+        st.markdown("<div style='margin-top: 50px;'></div>", unsafe_allow_html=True)
+        ruin_pct_limit = st.slider("💥 Ruin Threshold (%)", min_value=5, max_value=50, value=20, step=5, help="Define the maximum acceptable portfolio drawdown.")
+        ruin_prob = (np.sum(max_dds > (nav_base * (ruin_pct_limit / 100.0))) / 10000) * 100
+        
+        st.markdown(f"""
+        <div style="background-color: rgba(255, 255, 255, 0.9); padding: 15px; border: 1px solid black; border-radius: 5px; font-size: 12px; color: black; margin-top: 10px;">
+            <b style="font-size: 14px; color: #1d4ed8;">RISK METRICS</b><br><br>
+            <b>Empirical Risk of Ruin:</b> <span style="color: {'red' if ruin_prob>5 else 'green'}; font-weight: bold;">{ruin_prob:.2f}%</span><br>
+            <i>(Probability of hitting a >{ruin_pct_limit}% drawdown based on 10,000 resampled realities).</i><br><br>
+            <b style="font-size: 14px; color: #1d4ed8;">DRAWDOWN STATS</b><br><br>
+            <b>Original History:</b><br>${orig_dd:,.0f}<br><br>
+            <b>SIMULATION (10k runs):</b><br>
+            Avg Expected DD: ${mc_avg_dd:,.0f}<br>
+            Best Case DD: ${mc_best_dd:,.0f}<br>
+            Worst Case DD: ${mc_worst_dd:,.0f}<br><br>
+            <hr style="margin: 10px 0;">
+            <b>Is it Edge or Luck?</b><br>
+            The <i>Best</i> and <i>Worst</i> traces represent the extreme 99.99th and 0.01st percentile limits of purely reshuffled luck given your exact edge. Because your <i>Original Realized History</i> is anchored near the <i>Statistically Expected Mean</i>, it confirms a statistically significant and highly robust edge, rather than an accidental streak of luck.
+        </div>
+        """.replace('\n', ''), unsafe_allow_html=True)
+
+
 exp_sec1 = st.expander("🏦 View GAAP Balance Sheet & Allocation", expanded=False)
 col_bar, col_pie, col_sector = exp_sec1.columns(3)
 
@@ -4413,81 +4487,6 @@ with col_swan_text:
 st.divider()
 
 st.divider()
-
-# --- SECTION 10: MONTE CARLO SIMULATION ---
-st.subheader("8. Estate Montecarlo PnL Simulation - Projections vs History", anchor="sec8")
-exp_sec8 = st.expander("🎲 View Montecarlo PnL Simulation", expanded=False)
-daily_pnl_array = global_df['daily_pnl'].dropna().values
-sim_length = len(daily_pnl_array)
-
-if sim_length > 0:
-    cum_sim, max_dds, mc_avg_dd, mc_best_dd, mc_worst_dd, mc_avg_path = generate_mc_paths(daily_pnl_array)
-    
-    nav_base = global_metrics['nav'] if global_metrics['nav'] > 0 else 1
-    
-    orig_cum = np.insert(np.cumsum(daily_pnl_array), 0, 0)
-    orig_peaks = np.maximum.accumulate(orig_cum)
-    orig_dd = np.max(orig_peaks - orig_cum)
-    
-    best_idx = np.argmax(cum_sim[:, -1])
-    worst_idx = np.argmin(cum_sim[:, -1])
-    
-    col_mc_chart, col_mc_leg = exp_sec8.columns([0.85, 0.15])
-    
-    with col_mc_chart:
-        mc_fig = go.Figure()
-        
-        spaghetti_colors = [
-            'rgba(148, 163, 184, 0.25)', 'rgba(100, 116, 139, 0.25)', 
-            'rgba(71, 85, 105, 0.25)', 'rgba(56, 189, 248, 0.15)', 'rgba(14, 165, 233, 0.15)'
-        ]
-        
-        for i in range(200):
-            mc_fig.add_trace(go.Scatter(
-                y=cum_sim[i], mode='lines', line=dict(color=random.choice(spaghetti_colors), width=1.5), showlegend=False, hoverinfo='skip'
-            ))
-        
-        mc_fig.add_trace(go.Scatter(y=cum_sim[best_idx], name='Best Case', mode='lines', line=dict(color='#166534', width=4.5)))
-        mc_fig.add_trace(go.Scatter(y=cum_sim[worst_idx], name='Worst Case', mode='lines', line=dict(color='#991b1b', width=4.5)))
-        mc_fig.add_trace(go.Scatter(y=mc_avg_path, name='Statistically Expected (Mean)', mode='lines', line=dict(color='blue', width=6)))
-        mc_fig.add_trace(go.Scatter(y=orig_cum, name='Original Realized History', mode='lines', line=dict(color='black', width=9)))
-        
-        last_x = sim_length
-        mc_fig.add_annotation(x=last_x, y=cum_sim[best_idx][-1], text=f"Best: ${cum_sim[best_idx][-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='#166534', font=dict(color='white', size=11))
-        mc_fig.add_annotation(x=last_x, y=cum_sim[worst_idx][-1], text=f"Worst: ${cum_sim[worst_idx][-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='#991b1b', font=dict(color='white', size=11))
-        mc_fig.add_annotation(x=last_x, y=mc_avg_path[-1], text=f"Expected: ${mc_avg_path[-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='blue', font=dict(color='white', size=11))
-        mc_fig.add_annotation(x=last_x, y=orig_cum[-1], text=f"Original: ${orig_cum[-1]:,.0f}", showarrow=False, xanchor='left', bgcolor='black', font=dict(color='white', size=11))
-        
-        mc_fig.update_layout(
-            height=800, margin=dict(l=20, r=80, t=30, b=20), plot_bgcolor='rgba(0,0,0,0)', 
-            xaxis_title='Trading Days Forward', 
-            yaxis=dict(title='Cumulative Net Profit (USD)', showgrid=True, gridcolor='LightGray', zeroline=True, zerolinecolor='black', zerolinewidth=1, layer='above traces'), 
-            xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray', layer='above traces'),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(mc_fig, width="stretch")
-        
-    with col_mc_leg:
-        st.markdown("<div style='margin-top: 50px;'></div>", unsafe_allow_html=True)
-        ruin_pct_limit = st.slider("💥 Ruin Threshold (%)", min_value=5, max_value=50, value=20, step=5, help="Define the maximum acceptable portfolio drawdown.")
-        ruin_prob = (np.sum(max_dds > (nav_base * (ruin_pct_limit / 100.0))) / 10000) * 100
-        
-        st.markdown(f"""
-        <div style="background-color: rgba(255, 255, 255, 0.9); padding: 15px; border: 1px solid black; border-radius: 5px; font-size: 12px; color: black; margin-top: 10px;">
-            <b style="font-size: 14px; color: #1d4ed8;">RISK METRICS</b><br><br>
-            <b>Empirical Risk of Ruin:</b> <span style="color: {'red' if ruin_prob>5 else 'green'}; font-weight: bold;">{ruin_prob:.2f}%</span><br>
-            <i>(Probability of hitting a >{ruin_pct_limit}% drawdown based on 10,000 resampled realities).</i><br><br>
-            <b style="font-size: 14px; color: #1d4ed8;">DRAWDOWN STATS</b><br><br>
-            <b>Original History:</b><br>${orig_dd:,.0f}<br><br>
-            <b>SIMULATION (10k runs):</b><br>
-            Avg Expected DD: ${mc_avg_dd:,.0f}<br>
-            Best Case DD: ${mc_best_dd:,.0f}<br>
-            Worst Case DD: ${mc_worst_dd:,.0f}<br><br>
-            <hr style="margin: 10px 0;">
-            <b>Is it Edge or Luck?</b><br>
-            The <i>Best</i> and <i>Worst</i> traces represent the extreme 99.99th and 0.01st percentile limits of purely reshuffled luck given your exact edge. Because your <i>Original Realized History</i> is anchored near the <i>Statistically Expected Mean</i>, it confirms a statistically significant and highly robust edge, rather than an accidental streak of luck.
-        </div>
-        """.replace('\n', ''), unsafe_allow_html=True)
 
 st.divider()
 
