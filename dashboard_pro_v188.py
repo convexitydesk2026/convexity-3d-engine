@@ -295,10 +295,7 @@ with st.sidebar:
     - [Master Estate Aggregation](#master-agg)
     - [Estate Calendars](#sec1b)
     - [1C. Global Market Flow & Institutional Rotation](#sec1c)
-    - [1. Estate Capital Breakdown (GAAP, Allocation & Sectors)](#sec1)
-    - [2. Live Portfolio Composition (from TWS)](#sec2)
-    - [3. Daily PnL per Silo](#sec3)
-    - [3B. Alpha Engine & Physical Equity Risk Ledger](#sec3b)
+    - [Estate Capital Breakdown](#sec1)
     - [4. PnL Attribution & Capital Velocity](#sec4)
     - [5. Deployment Command Center (Transition to 60/40)](#sec5)
     - [6. Capital Deployment & Margin Capacity Tracker](#sec6)
@@ -2269,7 +2266,7 @@ with st.expander("📊 Expand Institutional Flow Dashboard", expanded=False):
 
 
 # --- SECTION 3: ESTATE CAPITAL BREAKDOWN ---
-st.subheader("1. Estate Capital Breakdown (GAAP, Allocation & Sectors)", anchor="sec1")
+st.subheader("Estate Capital Breakdown", anchor="sec1")
 exp_sec1 = st.expander("🏦 View GAAP Balance Sheet & Allocation", expanded=False)
 col_bar, col_pie, col_sector = exp_sec1.columns(3)
 
@@ -2360,10 +2357,7 @@ if not pos_df.empty:
             )
             exp_sec1.plotly_chart(fig_sec, width="stretch")
 
-st.divider()
 
-# --- SECTION 4: TARGET PORTFOLIO COMPOSITION ---
-st.subheader("2. Live Portfolio Composition (from TWS)", anchor="sec2")
 exp_sec2 = st.expander("🔍 View Live Portfolio Composition", expanded=False)
 num_silos = max(1, len(SILO_MAP))
 comp_cols = exp_sec2.columns(num_silos)
@@ -2394,10 +2388,7 @@ for idx, acc in enumerate(SILO_MAP.keys()):
             unsafe_allow_html=True
         )
 
-st.divider()
 
-# --- SECTION 5: DAILY PNL HISTOGRAM ---
-st.subheader("3. Daily PnL per Silo", anchor="sec3")
 exp_sec3 = st.expander("📈 View Daily PnL Trajectory", expanded=False)
 
 privacy_mode = exp_sec3.toggle("🙈 Privacy Mode (Hide Estate & Silo PnL)", value=False)
@@ -2538,10 +2529,7 @@ gear_legend_html = """
 """
 exp_sec3.markdown(gear_legend_html, unsafe_allow_html=True)
 
-st.divider()
 
-# --- SECTION 3B: ALPHA ENGINE & PHYSICAL EQUITY RISK LEDGER ---
-st.subheader("3B. Alpha Engine & Physical Equity Risk Ledger", anchor="sec3b")
 exp_sec3b = st.expander("⚔️ View Physical Equity Risk Ledger", expanded=False)
 
 alpha_assets = ['Physical US Stocks', 'International Stocks', 'US Tech CFDs', 'Gold', 'Crypto', 'CSPX', 'CNDX', 'ITWN', 'CSKR', 'CNYA']
