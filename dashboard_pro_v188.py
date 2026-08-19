@@ -300,6 +300,10 @@ with st.sidebar:
     - [Convexity Project Tracker](#sec100)
     """)
     st.markdown("---")
+
+    # Placeholder for Risk Calculator (Populated after DB loads)
+    calc_placeholder = st.empty()
+
     
     st.markdown("### ⚙️ Engine Control")
     if st.button("⟳ Sync Live from TWS", width="stretch"):
@@ -350,9 +354,6 @@ with st.sidebar:
                 st.rerun()
 
     st.markdown("---")
-    
-    # Placeholder for Risk Calculator (Populated after DB loads)
-    calc_placeholder = st.empty()
     
     st.markdown("### 💸 Log Cash Flow")
     with st.expander("Record External or Internal Transfer"):
