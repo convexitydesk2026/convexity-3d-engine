@@ -289,6 +289,29 @@ active_scripts_str = get_active_scripts()
 
 # --- SIDEBAR: SYNC BUTTON & CASH FLOW Ledger ---
 with st.sidebar:
+
+    st.markdown('''
+    <style>
+
+    [data-testid="stSidebar"] button[kind="secondary"] {
+        background-color: #ffffff !important;
+    }
+    [data-testid="stSidebar"] button[kind="primary"] {
+        background-color: #e8f5e9 !important;
+        color: #1b5e20 !important;
+        border: 1px solid #c8e6c9 !important;
+    }
+        background-color: #ffffff !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stExpander"] details,
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary,
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border-radius: 8px;
+    }
+    </style>
+    ''', unsafe_allow_html=True)
     st.markdown("### 📌 Institutional Directory")
     st.markdown("""
     - [Master Dashboard](#top)
@@ -305,8 +328,7 @@ with st.sidebar:
     calc_placeholder = st.empty()
 
     
-    st.markdown("### ⚙️ Engine Control")
-    if st.button("⟳ Sync Live from TWS", width="stretch"):
+    if st.button("⟳ Sync Live from TWS", type="primary", width="stretch"):
         with st.spinner("Connecting to TWS... Please wait (~15s)"):
             try:
                 subprocess.run(["python", SYNC_SCRIPT], check=True)
@@ -315,7 +337,6 @@ with st.sidebar:
                 st.rerun()
             except Exception as e:
                 st.error(f"Sync failed. Is TWS open? Error: {e}")
-                    
     if st.button("🌐 Generate Market Flow Report", width="stretch"):
         with st.spinner("Calculating Institutional Flow & Generating PDF... Please wait (~15s)"):
             try:
@@ -324,15 +345,11 @@ with st.sidebar:
                 st.rerun()
             except Exception as e:
                 st.error(f"Market Flow Engine failed: {e}")
-                
-    st.markdown("---")
-    
     with st.expander("⚙️ Silo Management"):
         st.markdown("Configure auto-discovered accounts.")
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
         if 'SILOS' not in config: config['SILOS'] = {}
-        
         with st.form("silo_mgmt_form"):
             updated_silos = {}
             for acc, data in SILO_MAP.items():
@@ -343,8 +360,6 @@ with st.sidebar:
                 new_desc = st.text_input("Description / Strategy", value=data[1], key=f"desc_{acc}")
                 new_macro = st.checkbox("Include in Macro Core?", value=data[3], key=f"macro_{acc}")
                 updated_silos[acc] = f"{new_alias}|{new_desc}|{new_color}|{new_macro}"
-                st.markdown("---")
-            
             if st.form_submit_button("Save Configuration", use_container_width=True):
                 for acc, val_str in updated_silos.items():
                     config['SILOS'][acc] = val_str
@@ -352,10 +367,6 @@ with st.sidebar:
                     config.write(f)
                 st.cache_data.clear()
                 st.rerun()
-
-    st.markdown("---")
-    
-    st.markdown("### 💸 Log Cash Flow")
     with st.expander("Record External or Internal Transfer"):
         with st.form("transfer_form", clear_on_submit=True):
             t_date = st.date_input("Date of Transfer", datetime.date.today())
@@ -364,15 +375,12 @@ with st.sidebar:
             t_type = st.selectbox("Flow Type", ["External Deposit", "External Withdrawal", "Internal Transfer In", "Internal Transfer Out"])
             t_amount = st.number_input("Amount (USD)", min_value=0.0, step=1000.0)
             t_notes = st.text_input("Notes (Optional)")
-            
             if st.form_submit_button("Record Flow in DB"):
                 if t_amount > 0:
                     # Withdrawals and Transfers Out represent money leaving the specific Silo's math pool
                     if "Withdrawal" in t_type or "Out" in t_type:
                         t_amount = -t_amount
-                        
                     acct_code = t_acc.split(" ")[0]
-                    
                     conn = sqlite3.connect(DB_PATH)
                     c = conn.cursor()
                     c.execute("CREATE TABLE IF NOT EXISTS cash_transfers (date TEXT, account TEXT, amount REAL, type TEXT, notes TEXT)")
@@ -382,17 +390,12 @@ with st.sidebar:
                     st.success(f"Successfully logged {t_amount:,.0f} to {acct_code}.")
                     st.cache_data.clear()
                     st.rerun()
-                    
-    st.markdown("---")
-    st.markdown("### 🎯 Conviction IV Scanner")
     with st.expander("Manage Alpha Watchlist"):
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS alpha_watchlist (symbol TEXT PRIMARY KEY, target_iv REAL, current_iv REAL DEFAULT 0.0)")
-        
         with st.form("add_watchlist_form", clear_on_submit=True):
             wl_ticker = st.text_input("Ticker Symbol (e.g., MU, BE)").upper()
-            
             c_iv1, c_iv2 = st.columns(2)
             with c_iv1:
                 wl_low_iv = st.number_input("52-Wk Low IV (%)", min_value=1.0, value=30.0, step=1.0)
@@ -899,7 +902,7 @@ with calc_placeholder.container():
         lock_reason = "3 consecutive losses in 48h." if recent_losses >= 3 else "Tier 4 Drawdown Lockout (-3.0% breached)."
         st.error(f"🚨 **ALPHA ENGINE LOCKED:** {lock_reason} Trading halted until recovery. (Simulation Mode Active)")
 
-    with st.expander("Position Sizing Engine", expanded=True):
+    with st.expander("Position Sizing Engine", expanded=False):
         
         # Fetch Live Regime for Dynamic Risk Capping
         temp_bench_ui = load_benchmarks(global_df['date'].min(), global_df['date'].max())
