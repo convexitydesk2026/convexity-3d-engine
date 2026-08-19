@@ -297,9 +297,10 @@ with st.sidebar:
         background-color: #ffffff !important;
     }
     [data-testid="stSidebar"] button[kind="primary"] {
-        background-color: #e8f5e9 !important;
+        background-color: #c8e6c9 !important;
         color: #1b5e20 !important;
-        border: 1px solid #c8e6c9 !important;
+        border: 1px solid #a5d6a7 !important;
+        font-weight: bold !important;
     }
         background-color: #ffffff !important;
     }
@@ -2458,27 +2459,11 @@ exp_sec3 = st.expander("📈 View Daily PnL Trajectory", expanded=False)
 
 privacy_mode = exp_sec3.toggle("🙈 Privacy Mode (Hide Estate & Silo PnL)", value=False)
 
-spy_usd_pnl = []
-qqq_usd_pnl = []
-rsp_usd_pnl = []
-curr_spy_nav = chart_df['nav'].iloc[0] if not chart_df.empty else 0
-curr_qqq_nav = chart_df['nav'].iloc[0] if not chart_df.empty else 0
-curr_rsp_nav = chart_df['nav'].iloc[0] if not chart_df.empty else 0
 
-for i, row in chart_df.iterrows():
-    s_pnl = curr_spy_nav * row['spy_ret']
-    q_pnl = curr_qqq_nav * row['qqq_ret']
-    r_pnl = curr_rsp_nav * row['rsp_ret']
-    spy_usd_pnl.append(s_pnl)
-    qqq_usd_pnl.append(q_pnl)
-    rsp_usd_pnl.append(r_pnl)
-    curr_spy_nav += s_pnl + row['net_flow']
-    curr_qqq_nav += q_pnl + row['net_flow']
-    curr_rsp_nav += r_pnl + row['net_flow']
-
-chart_df['spy_usd_cum'] = pd.Series(spy_usd_pnl).cumsum()
-chart_df['qqq_usd_cum'] = pd.Series(qqq_usd_pnl).cumsum()
-chart_df['rsp_usd_cum'] = pd.Series(rsp_usd_pnl).cumsum()
+initial_nav = chart_df['net_flow'].sum() + chart_df['nav'].iloc[0] if not chart_df.empty else 0
+chart_df['spy_usd_cum'] = chart_df['spy_cum'] * initial_nav
+chart_df['qqq_usd_cum'] = chart_df['qqq_cum'] * initial_nav
+chart_df['rsp_usd_cum'] = chart_df['rsp_cum'] * initial_nav
 
 fig_pnl = go.Figure()
 
