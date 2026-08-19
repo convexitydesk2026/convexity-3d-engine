@@ -297,8 +297,7 @@ with st.sidebar:
     - [Market Flow](#sec1c)
     - [Capital Breakdown](#sec1)
     - [Options Center](#sec6)
-    - [100. Project Management & Sprint Tracker](#sec100)
-    - [101. Publisher Export Pipeline (Ghost.org)](#sec101)
+    - [Convexity Project Tracker](#sec100)
     """)
     st.markdown("---")
     
@@ -5191,7 +5190,6 @@ else:
     exp_sec9b.info("No options history found in database.")
 
 
-st.markdown("<p style='color: #4b5563; font-size: 14px;'>A didactic Rosetta Stone for the Estate's Barbell mechanics. Outlines tax suitability, tactical execution, and live structural health for every active options class.</p>", unsafe_allow_html=True)
 
 _, vix_live = fetch_live_data('^VIX')
 max_margin = global_metrics['nav'] * 0.20
@@ -5204,19 +5202,6 @@ opt_action_9a = "Authorized to sell Bull Put Spreads." if live_opt_dir_9a == 'Bu
 vix_color = "#dc2626" if vix_live < 15 else ("#d97706" if vix_live < 20 else "#16a34a")
 vix_warn = "🚨 COMPLACENT (Halt VRP / Buy Tails)" if vix_live < 15 else ("🟡 NORMAL (Standard VRP)" if vix_live < 20 else "🟢 ELEVATED (Prime VRP)")
 
-st.markdown(f"""
-<div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid {opt_color_9a}; padding: 12px 20px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <div>
-        <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Options Governor Pre-Flight Checklist</div>
-        <div style="font-size: 15px; color: #0f172a;"><b>Structural Trend:</b> <span style="color: {opt_color_9a}; font-weight: bold;">{live_opt_dir_9a.upper()}</span> (SPY vs 50 SMA) — {opt_action_9a}</div>
-        <div style="font-size: 15px; color: #0f172a; margin-top: 4px;"><b>Remaining Margin Capacity:</b> <span style="color: {'#dc2626' if remaining_margin < 10000 else '#16a34a'};">${remaining_margin:,.0f}</span> (Hard Cap: 20% NAV)</div>
-    </div>
-    <div style="text-align: right;">
-        <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Live VIX Regime</div>
-        <div style="font-size: 15px; color: {vix_color}; font-weight: bold;">{vix_live:.2f} — {vix_warn}</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
 matrix_rows = ""
 active_strats = set()
@@ -5338,6 +5323,21 @@ html_matrix = f"""
 """
 
 with st.expander("⚙️ Click to expand the Master Options Matrix & CFO Briefing", expanded=False):
+    st.markdown("<p style='color: #4b5563; font-size: 14px;'>A didactic Rosetta Stone for the Estate's Barbell mechanics. Outlines tax suitability, tactical execution, and live structural health for every active options class.</p>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid {opt_color_9a}; padding: 12px 20px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Options Governor Pre-Flight Checklist</div>
+            <div style="font-size: 15px; color: #0f172a;"><b>Structural Trend:</b> <span style="color: {opt_color_9a}; font-weight: bold;">{live_opt_dir_9a.upper()}</span> (SPY vs 50 SMA) — {opt_action_9a}</div>
+            <div style="font-size: 15px; color: #0f172a; margin-top: 4px;"><b>Remaining Margin Capacity:</b> <span style="color: {'#dc2626' if remaining_margin < 10000 else '#16a34a'};">${remaining_margin:,.0f}</span> (Hard Cap: 20% NAV)</div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Live VIX Regime</div>
+            <div style="font-size: 15px; color: {vix_color}; font-weight: bold;">{vix_live:.2f} — {vix_warn}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown(html_matrix, unsafe_allow_html=True)
     
 # --- ENHANCEMENTS E.1 AND E.2: Beta-Weighted Risk & Catastrophe Coverage ---
@@ -5584,8 +5584,8 @@ with col_swan_text:
     '''
     exp_sec6c.markdown(swan_html, unsafe_allow_html=True)
 # --- SECTION 100: PROJECT MANAGEMENT & SPRINT TRACKER ---
-st.subheader("100. Project Management & Sprint Tracker", anchor="sec100")
-exp_sec100 = st.expander("🏗️ View Project Management & Sprint Tracker", expanded=False)
+st.subheader("Convexity Project Tracker", anchor="sec100")
+exp_sec100 = st.expander("🏗️ View Convexity Project Tracker", expanded=False)
 
 # 1. Database Initialization & Data Loading
 conn_pm = sqlite3.connect(DB_PATH, timeout=15)
@@ -5831,11 +5831,7 @@ if not edited_tasks.empty:
     exp_sec100.markdown(cal_html_pm, unsafe_allow_html=True)
 
 conn_pm.close()
-
-st.divider()
-
 # --- SECTION 101: PUBLISHER EXPORT PIPELINE ---
-st.subheader("101. Publisher Export Pipeline (Ghost.org)", anchor="sec101")
 exp_pub = st.expander("📰 1-Click Publish Module", expanded=False)
 
 conn_dos = sqlite3.connect(DB_PATH)
