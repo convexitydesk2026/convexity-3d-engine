@@ -40,7 +40,7 @@ from estate_env import TARGET_DIR, DB_PATH, CONFIG_PATH
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
-st.set_page_config(page_title="Estate Master Dashboard", layout="wide")
+st.set_page_config(page_title="Master Dashboard", layout="wide")
 
 SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine_v39.py")
 
@@ -291,8 +291,8 @@ active_scripts_str = get_active_scripts()
 with st.sidebar:
     st.markdown("### 📌 Institutional Directory")
     st.markdown("""
-    - [🔝 Estate Master Dashboard](#top)
-    - [Master Estate Aggregation](#master-agg)
+    - [Master Dashboard](#top)
+    - [Estate Aggregation](#master-agg)
     - [Calendars](#sec1b)
     - [Market Flow](#sec1c)
     - [Capital Breakdown](#sec1)
@@ -800,8 +800,8 @@ def load_deployment_ledger():
     return df_ledger
 
 # --- UI RENDERING ---
-exp_top = st.expander("🔝 Estate Master Dashboard", expanded=False)
-exp_top.title("Estate Master Dashboard", anchor="top")
+exp_top = st.expander("Master Dashboard", expanded=False)
+exp_top.title("Master Dashboard", anchor="top")
 exp_top.markdown(f"**Data Pipeline:** Live IBKR Sync via SQLite (`{os.path.basename(DB_PATH)}`) • **Last Refresh:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 exp_top.markdown(f"**Active Scripts:** `{active_scripts_str}`")
 exp_top.divider()
@@ -1749,7 +1749,7 @@ exp_top.markdown(weather_html, unsafe_allow_html=True)
 # SECTION 1: MASTER AGGREGATION
 html_metrics = f"""
 <div id="master-agg" style="background-color: #f3f4f6; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
-    <h4 style="text-align: center; color: #1f2937; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; font-size: 24px;">Master Estate Aggregation</h4>
+    <h4 style="text-align: center; color: #1f2937; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; font-size: 24px;">Estate Aggregation</h4>
     <div style="overflow-x: auto;">
         <table style="width: 100%; text-align: center; font-family: monospace; border-collapse: collapse;">
             <thead>
@@ -2190,9 +2190,6 @@ with st.expander("📅 Actionable Items", expanded=False):
         
     cal_html += "</div>"
     st.markdown(cal_html, unsafe_allow_html=True)
-
-st.divider()
-
 # --- SECTION 1C: MARKET FLOW ---
 st.subheader("Market Flow", anchor="sec1c")
 
