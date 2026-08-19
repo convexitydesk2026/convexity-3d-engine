@@ -5340,10 +5340,6 @@ html_matrix = f"""
 with st.expander("⚙️ Click to expand the Master Options Matrix & CFO Briefing", expanded=False):
     st.markdown(html_matrix, unsafe_allow_html=True)
     
-
-
-st.divider()
-
 # --- ENHANCEMENTS E.1 AND E.2: Beta-Weighted Risk & Catastrophe Coverage ---
 exp_sec6b = st.expander("⚖️ View Advanced Portfolio Risk Metrics", expanded=False)
 col_r1, col_r2 = exp_sec6b.columns(2)
@@ -5416,11 +5412,6 @@ with col_r2:
         <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">*Synchronized with SWAN 30% Stress Test parameters.</div>
     </div>
     """, unsafe_allow_html=True)
-
-st.divider()
-
-st.divider()
-
 exp_sec6c = st.expander("🦢 View S.W.A.N. Stress Test", expanded=False)
 exp_sec6c.markdown("<p style='color: #4b5563; font-size: 14px; margin-bottom: 20px;'><strong>S.W.A.N.</strong> is an institutional framework designed to survive Black Swan events without panic. Adjust the slider below to stress-test the Estate's Barbell against sudden market collapses.</p>", unsafe_allow_html=True)
 
@@ -5592,17 +5583,6 @@ with col_swan_text:
     </div>
     '''
     exp_sec6c.markdown(swan_html, unsafe_allow_html=True)
-
-st.divider()
-
-st.divider()
-
-st.divider()
-
-st.divider()
-
-st.divider()
-
 # --- SECTION 100: PROJECT MANAGEMENT & SPRINT TRACKER ---
 st.subheader("100. Project Management & Sprint Tracker", anchor="sec100")
 exp_sec100 = st.expander("🏗️ View Project Management & Sprint Tracker", expanded=False)
