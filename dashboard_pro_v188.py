@@ -298,7 +298,6 @@ with st.sidebar:
     - [Capital Breakdown](#sec1)
     - [Options Center](#sec6)
     - [6B. Advanced Portfolio Risk Metrics](#sec6b)
-    - [6C. The S.W.A.N. (Sleep Well At Night) Stress Test](#sec6c)
     - [100. Project Management & Sprint Tracker](#sec100)
     - [101. Publisher Export Pipeline (Ghost.org)](#sec101)
     """)
@@ -5424,8 +5423,6 @@ st.divider()
 
 st.divider()
 
-# --- SECTION 6C: THE S.W.A.N. STRESS TEST ---
-st.subheader("6C. The S.W.A.N. (Sleep Well At Night) Stress Test", anchor="sec6c")
 exp_sec6c = st.expander("🦢 View S.W.A.N. Stress Test", expanded=False)
 exp_sec6c.markdown("<p style='color: #4b5563; font-size: 14px; margin-bottom: 20px;'><strong>S.W.A.N.</strong> is an institutional framework designed to survive Black Swan events without panic. Adjust the slider below to stress-test the Estate's Barbell against sudden market collapses.</p>", unsafe_allow_html=True)
 
