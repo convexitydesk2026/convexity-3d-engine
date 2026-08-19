@@ -823,12 +823,18 @@ with calc_placeholder.container():
     # 2. Check 48-Hour Revenge Trading Lockout (v7.0 Inception Filter)
     conn_lock = sqlite3.connect(DB_PATH)
     c_lock = conn_lock.cursor()
-    c_lock.execute("SELECT COUNT(*) FROM alpha_campaigns WHERE status IN ('Closed', 'Closed 🏁') AND total_pnl < 0 AND close_date >= date('now', '-2 days') AND close_date >= '2026-07-17'")
-    recent_losses = c_lock.fetchone()[0]
+    c_lock.execute("SELECT COUNT(DISTINCT symbol), SUM(total_pnl) FROM alpha_campaigns WHERE status IN ('Closed', 'Closed 🏁') AND total_pnl < 0 AND close_date >= date('now', '-2 days') AND close_date >= '2026-07-17'")
+    row_lock = c_lock.fetchone()
+    recent_losses = row_lock[0] if row_lock and row_lock[0] else 0
+    recent_loss_sum = row_lock[1] if row_lock and row_lock[1] else 0.0
     conn_lock.close()
-    
+
+    # Calculate 0.25% Materiality Threshold
+    material_loss_threshold = global_metrics['nav'] * 0.0025
+    has_material_losses = abs(recent_loss_sum) >= material_loss_threshold
+
     # FIX 1: Cast to native Python bool to prevent Streamlit protobuf TypeError
-    is_locked = bool(recent_losses >= 3 or tier_multiplier == 0.0)
+    is_locked = bool((recent_losses >= 3 and has_material_losses) or tier_multiplier == 0.0)
     
     budget_color = "#16a34a" if tier_multiplier == 1.0 else ("#eab308" if tier_multiplier == 0.5 else ("#f97316" if tier_multiplier == 0.25 else "#dc2626"))
     
@@ -900,7 +906,7 @@ with calc_placeholder.container():
     """, unsafe_allow_html=True)
     
     if is_locked:
-        lock_reason = "3 consecutive losses in 48h." if recent_losses >= 3 else "Tier 4 Drawdown Lockout (-3.0% breached)."
+        lock_reason = "3 material losses in 48h (>0.25% NAV)." if (recent_losses >= 3 and has_material_losses) else "Tier 4 Drawdown Lockout (-3.0% breached)."
         st.error(f"🚨 **ALPHA ENGINE LOCKED:** {lock_reason} Trading halted until recovery. (Simulation Mode Active)")
 
     with st.expander("Position Sizing Engine", expanded=False):
