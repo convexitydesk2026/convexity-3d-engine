@@ -296,11 +296,9 @@ with st.sidebar:
     - [Calendars](#sec1b)
     - [Market Flow](#sec1c)
     - [Capital Breakdown](#sec1)
-    - [6. Capital Deployment & Margin Capacity Tracker](#sec6)
+    - [Options Center](#sec6)
     - [6B. Advanced Portfolio Risk Metrics](#sec6b)
     - [6C. The S.W.A.N. (Sleep Well At Night) Stress Test](#sec6c)
-    - [9A. The Master Options Matrix & CFO Briefing](#sec9a)
-    - [9B. The Options Performance Ledger & Topography Engine](#sec9b)
     - [100. Project Management & Sprint Tracker](#sec100)
     - [101. Publisher Export Pipeline (Ghost.org)](#sec101)
     """)
@@ -4058,7 +4056,7 @@ with st.expander("📊 Instrument Matrix & Tax Architecture", expanded=False):
 
 
 # --- SECTION 8: CAPITAL DEPLOYMENT & MARGIN TRACKER ---
-st.subheader("6. Capital Deployment & Margin Capacity Tracker", anchor="sec6")
+st.subheader("Options Center", anchor="sec6")
 
 exp_sec6 = st.expander("📊 View Capital Deployment & Margin Capacity Tracker", expanded=False)
 # Enlarging Global Gauges via Column Weights
@@ -4230,421 +4228,7 @@ if not journal_raw_df.empty and not global_df.empty and not bench_df.empty:
 else:
     exp_sec6.info("Insufficient historical data to render Capital Discipline Tracker.")
 
-st.divider()
 
-# --- ENHANCEMENTS E.1 AND E.2: Beta-Weighted Risk & Catastrophe Coverage ---
-st.subheader("6B. Advanced Portfolio Risk Metrics", anchor="sec6b")
-exp_sec6b = st.expander("⚖️ View Advanced Portfolio Risk Metrics", expanded=False)
-col_r1, col_r2 = exp_sec6b.columns(2)
-with col_r1:
-    # Note: Beta-Weighted logic was hoisted to the HUD section at the top of the script.
-    # The variables total_bw_delta, bw_usd_exposure, bw_pct_nav, and delta_breakdown are reused here.
-    
-    st.markdown(f"""
-    <div style="background-color: #f8fafc; padding: 20px 20px 5px 20px; border-radius: 8px 8px 0 0; border: 1px solid #cbd5e1; border-bottom: none; text-align: center;">
-        <h4 style="margin: 0; color: #334155; font-size: 16px;" title="Beta-Weighted Delta converts all disparate assets into 'SPY Equivalent Shares'. It measures total directional risk. If this is +50%, the entire Estate behaves as if 50% of your cash is invested in the S&P 500.">SPY Beta-Weighted Delta (Estate-Wide) ⓘ</h4>
-        <div style="font-size: 28px; font-weight: bold; color: {'#16a34a' if bw_pct_nav > 0 else '#dc2626'}; margin-top: 10px;">{bw_pct_nav:+.1f}% of NAV</div>
-        <div style="font-size: 14px; color: #64748b; margin-bottom: 10px;">Directional Equivalent: {total_bw_delta:,.0f} SPY Shares (${bw_usd_exposure:,.0f})</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Plotly Horizontal Stacked Bar for Delta Breakdown
-    fig_delta = go.Figure()
-    color_map = {'Equities & ETFs': '#3b82f6', 'Synthetic Beta': '#8b5cf6', 'VRP & CSPs': '#16a34a', 'Tail Hedges': '#0f172a'}
-    for k, v in delta_breakdown.items():
-        pct_contrib = (v * spy_price / global_metrics['nav'] * 100) if global_metrics['nav'] > 0 else 0
-        if abs(pct_contrib) > 0.1:
-            fig_delta.add_trace(go.Bar(
-                y=['Source'], x=[pct_contrib], name=k, orientation='h', 
-                marker_color=color_map.get(k, '#94a3b8'),
-                text=f"{k}<br>{pct_contrib:+.1f}%", textposition='inside', insidetextanchor='middle'
-            ))
-    
-    fig_delta.update_layout(
-        barmode='relative', height=80, margin=dict(l=0, r=0, t=0, b=0),
-        xaxis=dict(visible=False), yaxis=dict(visible=False),
-        showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
-    )
-    st.plotly_chart(fig_delta, width="stretch")
-    
-    st.markdown(f"""
-    <div style="background-color: #f8fafc; padding: 0 20px 10px 20px; border-radius: 0 0 8px 8px; border: 1px solid #cbd5e1; border-top: none; text-align: center;">
-        <div style="font-size: 11px; color: #94a3b8; margin-top: -5px;">*Hover over the title ⓘ for definition. Chart displays allocation of directional risk.</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-with col_r2:
-    th_payout = 0.0
-    for _, r in pos_df[pos_df['asset_class'] == 'Tail Hedge'].iterrows():
-        try:
-            parts = r['symbol'].split('_')
-            strike = float(parts[2])
-            dte = (pd.to_datetime(parts[1]) - pd.Timestamp.today()).days
-            pos = r['position']
-            S, V = fetch_live_data('XSP')
-            S_crash = S * 0.70  # CHANGED to 0.70 to strictly sync with the 30% macro shock parameter
-            V_crash = min(V * 2.5, 0.80) 
-            cost_price = r['avg_cost'] / 100
-            crash_price, _, _, _, _ = get_put_greeks(S_crash, strike, max(dte/365,0.001), LIVE_RF_RATE, V_crash)
-            th_payout += max(0, (crash_price - cost_price)) * pos * 100
-        except: pass
-        
-    coverage_ratio = (th_payout / opt_margin_total * 100) if opt_margin_total > 0 else 0
-    
-    # UI Tweak to prevent the 0% Contradiction when margin is $0
-    if opt_margin_total == 0 and th_payout > 0:
-        cov_text = "<span style='color: #16a34a;'>Fully Covered (No VRP Risk)</span>"
-    else:
-        cov_text = f"<span style='color: {'#16a34a' if coverage_ratio >= 100 else '#d97706'};'>{coverage_ratio:.1f}% Covered</span>"
-    
-    st.markdown(f"""
-    <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; text-align: center;">
-        <h4 style="margin: 0; color: #334155; font-size: 16px;">Black Swan Catastrophe Coverage (30% Crash)</h4>
-        <div style="font-size: 28px; font-weight: bold; margin-top: 10px;">{cov_text}</div>
-        <div style="font-size: 14px; color: #64748b;">Est. Tail Payout: ${th_payout:,.0f} vs Max Liability: ${opt_margin_total:,.0f}</div>
-        <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">*Synchronized with SWAN 30% Stress Test parameters.</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.divider()
-
-st.divider()
-
-# --- SECTION 6C: THE S.W.A.N. STRESS TEST ---
-st.subheader("6C. The S.W.A.N. (Sleep Well At Night) Stress Test", anchor="sec6c")
-exp_sec6c = st.expander("🦢 View S.W.A.N. Stress Test", expanded=False)
-exp_sec6c.markdown("<p style='color: #4b5563; font-size: 14px; margin-bottom: 20px;'><strong>S.W.A.N.</strong> is an institutional framework designed to survive Black Swan events without panic. Adjust the slider below to stress-test the Estate's Barbell against sudden market collapses.</p>", unsafe_allow_html=True)
-
-# 1. Interactive Crash Slider
-sim_crash_input = exp_sec6c.slider("💥 Simulated Market Drop (%)", min_value=10, max_value=50, value=30, step=5, help="Simulates an instant drop in the S&P 500, calculating expected equity losses vs. Tail Hedge payouts.")
-
-swan_shock_pct = sim_crash_input / 100.0
-swan_vix_spike = 0.80
-
-# 2. Equity & Synthetic Beta Losses (with Alpha Ledger Slippage Penalty)
-swan_phys_loss = 0.0
-swan_slippage = 0.10 # 10% gap down slippage penalty on stops
-
-if 'df_alpha' in locals() and not df_alpha.empty:
-    for _, r in df_alpha.iterrows():
-        spot_usd = r['Spot Price']
-        shock_price = spot_usd * (1 - swan_shock_pct)
-        for chunk in r['stop_details']:
-            q = chunk['q']
-            sl_usd = chunk['sl_usd']
-            if sl_usd > 0 and shock_price < sl_usd:
-                # Stop triggered. Assume 10% slippage, but capped at the gap price
-                fill_price = min(sl_usd * (1 - swan_slippage), spot_usd)
-                fill_price = max(fill_price, shock_price)
-                chunk_loss = (spot_usd - fill_price) * q
-            else:
-                # Unprotected or SL so low it wasn't triggered
-                chunk_loss = (spot_usd - shock_price) * q
-            swan_phys_loss += chunk_loss
-
-spy_price_swan = bench_df['SPY'].iloc[-1] if not bench_df.empty else 550.0
-synth_usd_exp = delta_breakdown.get('Synthetic Beta', 0.0) * spy_price_swan if 'delta_breakdown' in locals() else 0.0
-swan_synth_loss = synth_usd_exp * swan_shock_pct
-
-swan_equity_loss = swan_phys_loss + swan_synth_loss
-
-# 3. VRP Stop-Loss Assumptions
-swan_vrp_loss = 0.0
-if not journal_raw_df.empty:
-    open_vrp = journal_raw_df[pd.isnull(journal_raw_df['Close Date'])]
-    for _, r in open_vrp.iterrows():
-        prem = r.get('Premium Collected (USD)', 0)
-        qty = r.get('Quantity', 1)
-        if prem > 0:
-            # Assuming 200% stop loss triggers (Net loss = 2x Premium)
-            swan_vrp_loss += (prem * 2.0) * 100 * qty
-
-# 4. Tail Hedge Payout Simulation
-swan_th_payout = 0.0
-for _, r in pos_df[pos_df['asset_class'] == 'Tail Hedge'].iterrows():
-    try:
-        parts = r['symbol'].split('_')
-        strike = float(parts[2])
-        dte = (pd.to_datetime(parts[1]) - pd.Timestamp.today()).days
-        pos = r['position']
-        S, V = fetch_live_data('XSP')
-        S_crash = S * (1 - swan_shock_pct)
-        V_crash = swan_vix_spike 
-        cost_price = r['avg_cost'] / 100 
-        crash_price, _, _, _, _ = get_put_greeks(S_crash, strike, max(dte/365, 0.001), LIVE_RF_RATE, V_crash)
-        swan_th_payout += max(0, (crash_price - cost_price)) * pos * 100
-    except: pass
-
-swan_net_impact = -swan_equity_loss - swan_vrp_loss + swan_th_payout
-swan_ending_nav = global_metrics['nav'] + swan_net_impact
-swan_estate_impact_pct = (swan_net_impact / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
-
-col_swan_chart, col_swan_text = exp_sec6c.columns([2, 1])
-
-with col_swan_chart:
-    fig_waterfall = go.Figure(go.Waterfall(
-        name="SWAN", orientation="v",
-        measure=["absolute", "relative", "relative", "relative", "total"],
-        x=["Starting NAV", f"Equities (-{sim_crash_input}%)", "VRP Stops", "Tail Payout", "Ending NAV"],
-        textposition="outside",
-        text=[f"${global_metrics['nav']/1000:.0f}k", 
-              f"-${swan_equity_loss/1000:.0f}k", 
-              f"-${swan_vrp_loss/1000:.0f}k", 
-              f"+${swan_th_payout/1000:.0f}k", 
-              f"${swan_ending_nav/1000:.0f}k"],
-        y=[global_metrics['nav'], -swan_equity_loss, -swan_vrp_loss, swan_th_payout, 0],
-        connector={"line":{"color":"rgb(63, 63, 63)"}},
-        decreasing={"marker":{"color":"#dc2626"}},
-        increasing={"marker":{"color":"#16a34a"}},
-        totals={"marker":{"color":"#1d4ed8"}}
-    ))
-    fig_waterfall.update_layout(
-        title=f"Portfolio Impact Waterfall (-{sim_crash_input}% S&P 500 Crash)",
-        margin=dict(l=20, r=20, t=40, b=20),
-        plot_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(gridcolor='LightGray', zeroline=True, zerolinecolor='black')
-    )
-    exp_sec6c.plotly_chart(fig_waterfall, width="stretch")
-    
-    # --- SANITIZED SWAN FOR PUBLISHER EXPORT ---
-    swan_eq_pct = (swan_equity_loss / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
-    swan_vrp_pct = (swan_vrp_loss / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
-    swan_th_pct = (swan_th_payout / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
-    swan_end_pct = 100 - swan_eq_pct - swan_vrp_pct + swan_th_pct
-    
-    fig_swan_sanitized = go.Figure(go.Waterfall(
-        name="SWAN", orientation="v",
-        measure=["absolute", "relative", "relative", "relative", "total"],
-        x=["Starting NAV", f"Equities (-{sim_crash_input}%)", "VRP Stops", "Tail Payout", "Ending NAV"],
-        textposition="outside",
-        text=["100%", f"-{swan_eq_pct:.1f}%", f"-{swan_vrp_pct:.1f}%", f"+{swan_th_pct:.1f}%", f"{swan_end_pct:.1f}%"],
-        y=[100, -swan_eq_pct, -swan_vrp_pct, swan_th_pct, 0],
-        connector={"line":{"color":"rgb(63, 63, 63)"}},
-        decreasing={"marker":{"color":"#dc2626"}},
-        increasing={"marker":{"color":"#16a34a"}},
-        totals={"marker":{"color":"#1d4ed8"}}
-    ))
-    fig_swan_sanitized.update_layout(
-        title=f"Portfolio Impact Waterfall (-{sim_crash_input}% S&P 500 Crash)",
-        margin=dict(l=20, r=20, t=40, b=20),
-        plot_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(gridcolor='LightGray', zeroline=True, zerolinecolor='black')
-    )
-    st.session_state['pub_swan'] = fig_swan_sanitized
-
-with col_swan_text:
-    impact_color = "#16a34a" if swan_estate_impact_pct >= -10 else "#dc2626"
-    
-    vix_live_val = fetch_live_data('^VIX')[1]
-    vix_multiplier = (swan_vix_spike * 100) / vix_live_val if vix_live_val > 0 else 5.0
-    expansion_factor = min(3.0, 1.0 + (vix_multiplier * 0.5 * (sim_crash_input / 100.0)))
-    stressed_margin = opt_margin_total * expansion_factor
-    margin_cushion = tot_cash - stressed_margin
-    margin_status_color = "#16a34a" if margin_cushion >= 0 else "#dc2626"
-    margin_status_text = "SAFE (Sufficient Cash)" if margin_cushion >= 0 else "DANGER (Margin Call)"
-    
-    swan_html = f'''
-    <div style="background-color: #f8fafc; padding: 25px; border-radius: 8px; border: 1px solid #cbd5e1;">
-        <h4 style="margin-top: 0; color: #0f172a; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">CFO Executive Summary</h4>
-        <div style="display: flex; justify-content: space-between; margin-top: 15px;">
-            <span style="font-size: 16px; color: #475569;">Market Impact:</span>
-            <span style="font-size: 18px; font-weight: bold; color: #dc2626;">-{sim_crash_input}.0%</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 10px;">
-            <span style="font-size: 16px; color: #475569;">Estate Impact:</span>
-            <span style="font-size: 18px; font-weight: bold; color: {impact_color};">{swan_estate_impact_pct:+.1f}%</span>
-        </div>
-        <hr style="margin: 20px 0; border-color: #e5e7eb;">
-        <p style="font-size: 14px; color: #334155; font-style: italic; line-height: 1.6;">
-            "If the S&P 500 crashes {sim_crash_input}% tomorrow, the Estate will only suffer an estimated <b>{abs(swan_estate_impact_pct):.1f}%</b> drawdown. 
-            The <b>${(swan_equity_loss + swan_vrp_loss):,.0f}</b> losses from our core equity exposure and VRP stops are overwhelmingly absorbed 
-            by a projected <b>${swan_th_payout:,.0f}</b> payout from our deep OTM Black Swan insurance policies. Furthermore, the <b>{pct_cash:.1f}%</b> (${tot_cash:,.0f}) allocated to Risk-Free Yield (IB01/Cash) acts as a massive concrete anchor, insulating the principal from market shocks."
-        </p>
-    </div>
-    <div style="background-color: #fffbeb; padding: 20px; border-radius: 8px; border: 1px solid #fde047; margin-top: 15px;">
-        <h4 style="margin-top: 0; color: #854d0e; border-bottom: 2px solid #fef08a; padding-bottom: 10px;">Predictive Margin Shock (TIMS)</h4>
-        <div style="display: flex; justify-content: space-between; margin-top: 10px;">
-            <span style="font-size: 14px; color: #a16207;">Live Options Margin:</span>
-            <span style="font-size: 15px; font-weight: bold; color: #854d0e;">${opt_margin_total:,.0f}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 5px;">
-            <span style="font-size: 14px; color: #a16207;">Stressed Margin ({expansion_factor:.1f}x):</span>
-            <span style="font-size: 15px; font-weight: bold; color: #dc2626;">${stressed_margin:,.0f}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 5px;">
-            <span style="font-size: 14px; color: #a16207;">Available Cash (IB01):</span>
-            <span style="font-size: 15px; font-weight: bold; color: #16a34a;">${tot_cash:,.0f}</span>
-        </div>
-        <hr style="margin: 15px 0; border-color: #fef08a;">
-        <div style="text-align: center;">
-            <span style="font-size: 13px; color: #a16207; text-transform: uppercase; font-weight: bold;">Margin Call Risk</span><br>
-            <span style="font-size: 20px; font-weight: 900; color: {margin_status_color};">{margin_status_text}</span>
-        </div>
-    </div>
-    '''
-    exp_sec6c.markdown(swan_html, unsafe_allow_html=True)
-
-st.divider()
-
-st.divider()
-
-st.divider()
-
-# --- SECTION 9A: THE MASTER OPTIONS MATRIX (DIDACTIC ROSETTA STONE) ---
-st.subheader("9A. The Master Options Matrix & CFO Briefing", anchor="sec9a")
-st.markdown("<p style='color: #4b5563; font-size: 14px;'>A didactic Rosetta Stone for the Estate's Barbell mechanics. Outlines tax suitability, tactical execution, and live structural health for every active options class.</p>", unsafe_allow_html=True)
-
-_, vix_live = fetch_live_data('^VIX')
-max_margin = global_metrics['nav'] * 0.20
-remaining_margin = max(0, max_margin - opt_margin_total)
-
-live_opt_dir_9a = chart_df['opt_dir'].iloc[-1] if not chart_df.empty else 'Bear'
-opt_color_9a = '#166534' if live_opt_dir_9a == 'Bull' else '#991b1b'
-opt_action_9a = "Authorized to sell Bull Put Spreads." if live_opt_dir_9a == 'Bull' else "Bull Puts BANNED. Authorized to sell Bear Calls."
-
-vix_color = "#dc2626" if vix_live < 15 else ("#d97706" if vix_live < 20 else "#16a34a")
-vix_warn = "🚨 COMPLACENT (Halt VRP / Buy Tails)" if vix_live < 15 else ("🟡 NORMAL (Standard VRP)" if vix_live < 20 else "🟢 ELEVATED (Prime VRP)")
-
-st.markdown(f"""
-<div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid {opt_color_9a}; padding: 12px 20px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <div>
-        <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Options Governor Pre-Flight Checklist</div>
-        <div style="font-size: 15px; color: #0f172a;"><b>Structural Trend:</b> <span style="color: {opt_color_9a}; font-weight: bold;">{live_opt_dir_9a.upper()}</span> (SPY vs 50 SMA) — {opt_action_9a}</div>
-        <div style="font-size: 15px; color: #0f172a; margin-top: 4px;"><b>Remaining Margin Capacity:</b> <span style="color: {'#dc2626' if remaining_margin < 10000 else '#16a34a'};">${remaining_margin:,.0f}</span> (Hard Cap: 20% NAV)</div>
-    </div>
-    <div style="text-align: right;">
-        <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Live VIX Regime</div>
-        <div style="font-size: 15px; color: {vix_color}; font-weight: bold;">{vix_live:.2f} — {vix_warn}</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-matrix_rows = ""
-active_strats = set()
-
-if not pos_df.empty:
-    open_opts = pos_df[pos_df['sec_type'] == 'OPT'].copy()
-    if not open_opts.empty:
-        open_opts['base_tckr'] = open_opts['symbol'].apply(lambda x: x.split('_')[0])
-        open_opts['strike'] = open_opts['symbol'].apply(lambda x: float(x.split('_')[2]))
-        open_opts['exp'] = open_opts['symbol'].apply(lambda x: pd.to_datetime(x.split('_')[1]))
-        
-        for (base_tckr, asset_class), group in open_opts.groupby(['base_tckr', 'asset_class']):
-            try: spot, _ = fetch_live_data(base_tckr)
-            except: spot = 0.0
-            
-            dte = (group['exp'].iloc[0] - pd.Timestamp.today()).days
-            shorts = group[group['position'] < 0]
-            longs = group[group['position'] > 0]
-            exp_str = group['exp'].iloc[0].strftime('%b %Y')
-            
-            # 1. VRP Income (XSP)
-            if base_tckr in ['XSP', 'SPX'] and not shorts.empty and not longs.empty:
-                active_strats.add('VRP')
-                strike = shorts['strike'].iloc[0]
-                dist = (spot - strike) / spot * 100 if spot > 0 else 0
-                color = "#166534" if dist > 1 else "#b91c1c"
-                status = f"<b>SAFEGUARDED.</b> The underlying index ({base_tckr}) is currently trading at ${spot:.0f}. Your short strike liability ({strike}) is {dist:.1f}% Out-of-the-Money, maintaining a healthy structural cushion." if dist > 1 else f"<b>DANGER.</b> Spot is testing the short strike. Monitor for mechanical 200% stop-loss."
-                verdict = f"<b>Nominal Condition.</b> With {dte} DTE remaining, allow Theta decay to naturally run its course. Do not manually intervene unless the 50% Take-Profit is triggered." if dte > 21 else f"<b>EJECT IMMEDIATELY:</b> Gamma Cliff Reached ({dte} DTE). Time decay is now overpowered by explosive price sensitivity."
-                matrix_rows += f"<tr><td><b>{base_tckr} Bull Put Spreads</b><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled. No US Estate Tax risk. No dividend withholding.</span></td><td style='color:{color}; font-size: 13px;'>{exp_str} {strike} Short<br><br>{status}</td><td style='font-size: 13px;'><b>The Income Engine (VRP).</b><br>• <i>Pro:</i> High win-rate (90%+), defined maximum loss.<br>• <i>Con:</i> Asymmetric risk/reward; requires disciplined stop-losses to survive tail events.</td><td style='font-size: 13px;'><b>Entry:</b> VIX > 15. Exactly 45-50 DTE. ~0.20 Delta.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss, or 21-DTE Time Stop.</td><td style='font-size: 13px;'>{verdict}</td></tr>"
-                
-            # 2. Synthetic Beta (XND/NDX/QQQ)
-            elif base_tckr in ['XND', 'QQQ', 'NDX'] and not longs.empty and shorts.empty:
-                active_strats.add('SYNTH_BETA')
-                strike = longs['strike'].iloc[0]
-                status = f"<b>ACTIVE & TRACKING.</b> {base_tckr} is trading at ${spot:.2f}. These Deep ITM calls are successfully mirroring physical stock movements with 5x capital efficiency."
-                verdict = f"<b>Nominal Condition.</b> With {dte} DTE remaining, the options are safely traversing the 'flat' part of the Theta decay curve." if dte > 45 else f"<b>ROLL REQUIRED:</b> Theta acceleration zone entered ({dte} DTE). Execute the rolling protocol to push the expiration back to 150 DTE."
-                matrix_rows += f"<tr><td><b>{base_tckr} Calls (Synthetic Beta)</b><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: MANDATORY.</b> Section 1256. Fully shields Estate from 40% US tax confiscation.</span></td><td style='color:#1d4ed8; font-size: 13px;'>{exp_str} {strike} Call<br><br>{status}</td><td style='font-size: 13px;'><b>The Growth Engine.</b> Replaces physical US ETFs.<br>• <i>Pro:</i> Frees up 80% of capital to earn 5% in Treasuries. Zero overnight CFD financing fees.<br>• <i>Con:</i> Suffers from slight Theta (time) decay.</td><td style='font-size: 13px;'><b>Entry:</b> 120-180 DTE. Delta > 0.80 (Deep ITM). No stop-losses.<br><br><b>Exit:</b> Never sell. Roll mechanically when 45 DTE is breached.</td><td style='font-size: 13px;'>{verdict}</td></tr>"
-            
-            # 3. Tail Hedges
-            elif base_tckr in ['XSP', 'SPX'] and not longs.empty and shorts.empty:
-                active_strats.add('TAIL')
-                strike = longs['strike'].iloc[0]
-                matrix_rows += f"<tr><td><b>120-DTE Black Swan Puts ({base_tckr})</b><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled. IRS Safe.</span></td><td style='color:#166534; font-size: 13px;'>{exp_str} {strike} Put<br><br><b>SAFEGUARD.</b> Deep Out-of-the-Money insurance policies silently resting on the ledger.</td><td style='font-size: 13px;'><b>Black Swan Insurance (The Barbell).</b><br>• <i>Pro:</i> Mathematically guarantees survival during multi-month systemic meltdowns.<br>• <i>Con:</i> 100% loss of capital expected. Acts as a constant Theta drag on the portfolio.</td><td style='font-size: 13px;'><b>Entry:</b> Financed strictly by 10% of VRP winnings. 120-150 DTE. Delta < -0.05.<br><br><b>Exit:</b> Monetize dynamically during deep market panic to buy physical assets at the bottom.</td><td style='font-size: 13px;'><b>Nominal.</b> Expect this to bleed to $0. Do not track for daily PnL. Let it ride to catch unexpected crashes.</td></tr>"
-            
-            # 4. Whale Hedges (SMH)
-            elif base_tckr == 'SMH' and not shorts.empty:
-                active_strats.add('WHALE')
-                strike = shorts['strike'].iloc[0]
-                matrix_rows += f"<tr><td><b>{base_tckr} Bear Puts (Whale Hedge)</b><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Equity Options carry physical assignment risk, exposing non-US persons.</span></td><td style='color:#b91c1c; font-size: 13px;'>{exp_str} {strike} Put<br><br><b>MACRO BET.</b> Highly speculative directional short tracking semiconductor capex trends.</td><td style='font-size: 13px;'><b>Tactical Directional Short.</b><br>• <i>Pro:</i> Massive asymmetric leverage if the macro thesis plays out perfectly.<br>• <i>Con:</i> Extremely low probability of success; high Theta burn.</td><td style='font-size: 13px;'><b>Entry:</b> Based entirely on CIO macro-economic thesis, not mechanical rules.<br><br><b>Exit:</b> Hit subjective price targets or expire worthless.</td><td style='font-size: 13px;'><b>Discretionary.</b> Track manually. Do not apply mechanical 21-DTE rules to macro lotto tickets.</td></tr>"
-            
-            # 5. Conviction Cash-Secured Puts (e.g., BE, MU)
-            elif not shorts.empty and base_tckr not in ['XSP', 'SPX', 'XND', 'NDX', 'QQQ', 'SMH']:
-                active_strats.add('CSP')
-                strike = shorts['strike'].iloc[0]
-                matrix_rows += f"<tr><td><b>{base_tckr} Conviction Puts (CSP)</b><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Assignment increases physical US Situs exposure. Manage allocations strictly.</span></td><td style='color:#166534; font-size: 13px;'>{exp_str} {strike} Put<br><br><b>CONVICTION ACQUISITION.</b> {base_tckr} is at ${spot:.2f}. Selling puts during high-fear drops to harvest elevated premium or average-down cost basis on owned assets.</td><td style='font-size: 13px;'><b>Volatility Harvesting / Averaging Down.</b><br>• <i>Pro:</i> Generates massive cash yield. Turns market fear into an opportunity to acquire desired assets at a discount.<br>• <i>Con:</i> Locks up heavy notional margin. Increases Estate Tax risk if held physically.</td><td style='font-size: 13px;'><b>Entry:</b> High IV Rank on targeted infrastructure/AI physical assets already in the portfolio.<br><br><b>Exit:</b> 50% Take-Profit to free up margin, or happily take physical assignment to increase position size.</td><td style='font-size: 13px;'><b>Nominal.</b> Keep collecting the premium. Assignment is an acceptable outcome based on CIO conviction.</td></tr>"
-
-# --- RIPE CONDITIONS EVALUATION FOR MATRIX ---
-spy_spot_9a = bench_df['SPY'].iloc[-1] if not bench_df.empty else 550.0
-spy_50_9a = bench_df['sma_50'].iloc[-1] if not bench_df.empty else 550.0
-spy_200_9a = bench_df['sma_200'].iloc[-1] if not bench_df.empty else 500.0
-live_alpha_gear_9a = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
-macro_soon_9a = any(ev['type'] == 'Macro' and 0 <= (ev['date'] - datetime.date.today()).days <= 1 for ev in calendar_events)
-
-bp_ripe = 15.0 <= vix_live and (spy_spot_9a > spy_50_9a or spy_spot_9a < spy_200_9a)
-bc_ripe = 15.0 <= vix_live <= 25.0 and spy_spot_9a < spy_50_9a
-ic_ripe = 15.0 <= vix_live <= 22.0 and (abs(spy_spot_9a - spy_50_9a)/spy_50_9a < 0.02 or live_alpha_gear_9a == 3)
-tm_ripe = vix_live < 15.0 and spy_spot_9a > spy_50_9a
-th_ripe = vix_live < 15.0
-
-def get_verdict_html(is_ripe, ripe_text="RIPE FOR DEPLOYMENT", banned_text="BANNED (Conditions Not Met)"):
-    if is_ripe: return f"<br><br><span style='color:#16a34a;'><b>🟢 {ripe_text}</b></span>"
-    else: return f"<br><br><span style='color:#dc2626;'><b>🔴 {banned_text}</b></span>"
-
-# --- RENDER MISSING STRATEGIES (STATIC ROWS) ---
-if 'VRP' not in active_strats:
-    matrix_rows += f"<tr><td><span style='color:#64748b'><b>XSP Bull Put Spreads</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Income Engine (VRP).</b><br>• <i>Pro:</i> High win-rate (90%+), defined maximum loss.<br>• <i>Con:</i> Asymmetric risk/reward.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX > 15. Exactly 45-50 DTE. ~0.20 Delta.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss, or 21-DTE Time Stop.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor VIX for deployment opportunities.{get_verdict_html(bp_ripe)}</td></tr>"
-
-# Add Bear Calls
-matrix_rows += f"<tr><td><span style='color:#64748b'><b>XSP Bear Call Spreads</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Gravity Trade.</b><br>• <i>Pro:</i> Capitalizes on structural downtrends or irrational exuberance.<br>• <i>Con:</i> Unlimited theoretical risk if unhedged.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX 15-25. SPY < 50 SMA.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor for structural breakdown.{get_verdict_html(bc_ripe)}</td></tr>"
-
-# Add Iron Condors
-matrix_rows += f"<tr><td><span style='color:#64748b'><b>XSP Iron Condors</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Efficiency Multiplier.</b><br>• <i>Pro:</i> Doubles income without doubling margin.<br>• <i>Con:</i> Vulnerable to violent directional breakouts.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX 15-22. Rangebound market.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor for rangebound consolidation.{get_verdict_html(ic_ripe)}</td></tr>"
-
-# Add Theta Machine
-matrix_rows += f"<tr><td><span style='color:#64748b'><b>The Theta Machine (Calendars)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Low-VIX Pivot.</b><br>• <i>Pro:</i> Positive Vega. Benefits if VIX wakes up.<br>• <i>Con:</i> Requires slow, grinding market.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX < 15. SPY > 50 SMA. Buy 60-90 DTE, Sell 7-14 DTE.<br><br><b>Exit:</b> Close when short leg decays or roll.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor for complacency.{get_verdict_html(tm_ripe)}</td></tr>"
-
-# Add Macro IV Crush
-matrix_rows += f"<tr><td><span style='color:#64748b'><b>Macro IV Crush (Iron Butterfly)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Binary Event Trap.</b><br>• <i>Pro:</i> Aggressively harvests overnight Vega crush.<br>• <i>Con:</i> High risk if event causes massive gap beyond wings.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> 15 mins before Tier-1 Macro event. 0-DTE or 1-DTE.<br><br><b>Exit:</b> First 15-30 mins of next open.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor economic calendar.{get_verdict_html(macro_soon_9a)}</td></tr>"
-
-if 'SYNTH_BETA' not in active_strats:
-    matrix_rows += f"<tr><td><span style='color:#64748b'><b>XND/QQQ Calls (Synthetic Beta)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: MANDATORY.</b> Section 1256.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Growth Engine.</b> Replaces physical US ETFs.<br>• <i>Pro:</i> Frees up 80% of capital to earn 5% in Treasuries.<br>• <i>Con:</i> Suffers from slight Theta (time) decay.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> 120-180 DTE. Delta > 0.80 (Deep ITM). No stop-losses.<br><br><b>Exit:</b> Never sell. Roll mechanically when 45 DTE is breached.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Deploy capital to establish core macro exposure.</td></tr>"
-    
-if 'TAIL' not in active_strats:
-    matrix_rows += f"<tr><td><span style='color:#64748b'><b>120-DTE Black Swan Puts (XSP)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Estate is completely naked to Black Swan gap-downs.</td><td style='color:#64748b; font-size: 13px;'><b>Black Swan Insurance (The Barbell).</b><br>• <i>Pro:</i> Mathematically guarantees survival during multi-month systemic meltdowns.<br>• <i>Con:</i> 100% loss of capital expected. Acts as a constant Theta drag.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> Financed strictly by 10% of VRP winnings. 120-150 DTE. Delta < -0.05.<br><br><b>Exit:</b> Monetize dynamically during deep market panic.</td><td style='color:#64748b; font-size: 13px; color:#b91c1c;'><b>CRITICAL.</b> VRP Tail budget is sitting idle. Purchase deep OTM puts immediately.{get_verdict_html(th_ripe)}</td></tr>"
-
-if 'WHALE' not in active_strats:
-    matrix_rows += f"<tr><td><span style='color:#64748b'><b>SMH Bear Puts (Whale Hedge)</b></span><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Equity Options carry physical assignment risk.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>Tactical Directional Short.</b><br>• <i>Pro:</i> Massive asymmetric leverage if the macro thesis plays out perfectly.<br>• <i>Con:</i> Extremely low probability of success; high Theta burn.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> Based entirely on CIO macro-economic thesis, not mechanical rules.<br><br><b>Exit:</b> Hit subjective price targets or expire worthless.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor macro sector imbalances for entry.</td></tr>"
-
-if 'CSP' not in active_strats:
-    matrix_rows += f"<tr><td><span style='color:#64748b'><b>Conviction Puts (CSP)</b></span><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Assignment increases physical US Situs exposure.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>Volatility Harvesting / Averaging Down.</b><br>• <i>Pro:</i> Generates massive cash yield. Turns market fear into an opportunity.<br>• <i>Con:</i> Locks up heavy notional margin. Increases Estate Tax risk.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> High IV Rank on targeted infrastructure/AI physical assets.<br><br><b>Exit:</b> 50% Take-Profit to free up margin, or happily take physical assignment.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor high-conviction assets for IV spikes.</td></tr>"
-
-html_matrix = f"""
-<div style="background-color: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 30px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-    <table style="width: 100%; text-align: left; font-family: sans-serif; border-collapse: collapse;">
-        <thead>
-            <tr style="background-color: #1e293b; color: #ffffff; border-bottom: 2px solid #cbd5e1;">
-                <th style="padding: 12px; font-size: 14px; width: 15%;">Instrument & Tax Class</th>
-                <th style="padding: 12px; font-size: 14px; width: 20%;">Active Position & Live Status</th>
-                <th style="padding: 12px; font-size: 14px; width: 25%;">Strategic Thesis (Pros & Cons)</th>
-                <th style="padding: 12px; font-size: 14px; width: 20%;">Execution Protocol (Entry / Exit)</th>
-                <th style="padding: 12px; font-size: 14px; width: 20%;">Automated CFO Verdict</th>
-            </tr>
-        </thead>
-        <tbody>
-            {matrix_rows}
-        </tbody>
-    </table>
-</div>
-"""
-
-with st.expander("⚙️ Click to expand the Master Options Matrix & CFO Briefing", expanded=False):
-    st.markdown(html_matrix, unsafe_allow_html=True)
-    
-st.divider()
-
-# --- SECTION 9B: THE OPTIONS PERFORMANCE Ledger & Topography Engine ---
-st.subheader("9B. The Options Performance Ledger & Topography Engine", anchor="sec9b")
 exp_sec9b = st.expander("🧭 View Options Performance Ledger & Topography", expanded=False)
 
 if not journal_raw_df.empty:
@@ -5607,6 +5191,420 @@ if not journal_raw_df.empty:
 
 else:
     exp_sec9b.info("No options history found in database.")
+
+
+st.markdown("<p style='color: #4b5563; font-size: 14px;'>A didactic Rosetta Stone for the Estate's Barbell mechanics. Outlines tax suitability, tactical execution, and live structural health for every active options class.</p>", unsafe_allow_html=True)
+
+_, vix_live = fetch_live_data('^VIX')
+max_margin = global_metrics['nav'] * 0.20
+remaining_margin = max(0, max_margin - opt_margin_total)
+
+live_opt_dir_9a = chart_df['opt_dir'].iloc[-1] if not chart_df.empty else 'Bear'
+opt_color_9a = '#166534' if live_opt_dir_9a == 'Bull' else '#991b1b'
+opt_action_9a = "Authorized to sell Bull Put Spreads." if live_opt_dir_9a == 'Bull' else "Bull Puts BANNED. Authorized to sell Bear Calls."
+
+vix_color = "#dc2626" if vix_live < 15 else ("#d97706" if vix_live < 20 else "#16a34a")
+vix_warn = "🚨 COMPLACENT (Halt VRP / Buy Tails)" if vix_live < 15 else ("🟡 NORMAL (Standard VRP)" if vix_live < 20 else "🟢 ELEVATED (Prime VRP)")
+
+st.markdown(f"""
+<div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid {opt_color_9a}; padding: 12px 20px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div>
+        <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Options Governor Pre-Flight Checklist</div>
+        <div style="font-size: 15px; color: #0f172a;"><b>Structural Trend:</b> <span style="color: {opt_color_9a}; font-weight: bold;">{live_opt_dir_9a.upper()}</span> (SPY vs 50 SMA) — {opt_action_9a}</div>
+        <div style="font-size: 15px; color: #0f172a; margin-top: 4px;"><b>Remaining Margin Capacity:</b> <span style="color: {'#dc2626' if remaining_margin < 10000 else '#16a34a'};">${remaining_margin:,.0f}</span> (Hard Cap: 20% NAV)</div>
+    </div>
+    <div style="text-align: right;">
+        <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Live VIX Regime</div>
+        <div style="font-size: 15px; color: {vix_color}; font-weight: bold;">{vix_live:.2f} — {vix_warn}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+matrix_rows = ""
+active_strats = set()
+
+if not pos_df.empty:
+    open_opts = pos_df[pos_df['sec_type'] == 'OPT'].copy()
+    if not open_opts.empty:
+        open_opts['base_tckr'] = open_opts['symbol'].apply(lambda x: x.split('_')[0])
+        open_opts['strike'] = open_opts['symbol'].apply(lambda x: float(x.split('_')[2]))
+        open_opts['exp'] = open_opts['symbol'].apply(lambda x: pd.to_datetime(x.split('_')[1]))
+        
+        for (base_tckr, asset_class), group in open_opts.groupby(['base_tckr', 'asset_class']):
+            try: spot, _ = fetch_live_data(base_tckr)
+            except: spot = 0.0
+            
+            dte = (group['exp'].iloc[0] - pd.Timestamp.today()).days
+            shorts = group[group['position'] < 0]
+            longs = group[group['position'] > 0]
+            exp_str = group['exp'].iloc[0].strftime('%b %Y')
+            
+            # 1. VRP Income (XSP)
+            if base_tckr in ['XSP', 'SPX'] and not shorts.empty and not longs.empty:
+                active_strats.add('VRP')
+                strike = shorts['strike'].iloc[0]
+                dist = (spot - strike) / spot * 100 if spot > 0 else 0
+                color = "#166534" if dist > 1 else "#b91c1c"
+                status = f"<b>SAFEGUARDED.</b> The underlying index ({base_tckr}) is currently trading at ${spot:.0f}. Your short strike liability ({strike}) is {dist:.1f}% Out-of-the-Money, maintaining a healthy structural cushion." if dist > 1 else f"<b>DANGER.</b> Spot is testing the short strike. Monitor for mechanical 200% stop-loss."
+                verdict = f"<b>Nominal Condition.</b> With {dte} DTE remaining, allow Theta decay to naturally run its course. Do not manually intervene unless the 50% Take-Profit is triggered." if dte > 21 else f"<b>EJECT IMMEDIATELY:</b> Gamma Cliff Reached ({dte} DTE). Time decay is now overpowered by explosive price sensitivity."
+                matrix_rows += f"<tr><td><b>{base_tckr} Bull Put Spreads</b><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled. No US Estate Tax risk. No dividend withholding.</span></td><td style='color:{color}; font-size: 13px;'>{exp_str} {strike} Short<br><br>{status}</td><td style='font-size: 13px;'><b>The Income Engine (VRP).</b><br>• <i>Pro:</i> High win-rate (90%+), defined maximum loss.<br>• <i>Con:</i> Asymmetric risk/reward; requires disciplined stop-losses to survive tail events.</td><td style='font-size: 13px;'><b>Entry:</b> VIX > 15. Exactly 45-50 DTE. ~0.20 Delta.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss, or 21-DTE Time Stop.</td><td style='font-size: 13px;'>{verdict}</td></tr>"
+                
+            # 2. Synthetic Beta (XND/NDX/QQQ)
+            elif base_tckr in ['XND', 'QQQ', 'NDX'] and not longs.empty and shorts.empty:
+                active_strats.add('SYNTH_BETA')
+                strike = longs['strike'].iloc[0]
+                status = f"<b>ACTIVE & TRACKING.</b> {base_tckr} is trading at ${spot:.2f}. These Deep ITM calls are successfully mirroring physical stock movements with 5x capital efficiency."
+                verdict = f"<b>Nominal Condition.</b> With {dte} DTE remaining, the options are safely traversing the 'flat' part of the Theta decay curve." if dte > 45 else f"<b>ROLL REQUIRED:</b> Theta acceleration zone entered ({dte} DTE). Execute the rolling protocol to push the expiration back to 150 DTE."
+                matrix_rows += f"<tr><td><b>{base_tckr} Calls (Synthetic Beta)</b><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: MANDATORY.</b> Section 1256. Fully shields Estate from 40% US tax confiscation.</span></td><td style='color:#1d4ed8; font-size: 13px;'>{exp_str} {strike} Call<br><br>{status}</td><td style='font-size: 13px;'><b>The Growth Engine.</b> Replaces physical US ETFs.<br>• <i>Pro:</i> Frees up 80% of capital to earn 5% in Treasuries. Zero overnight CFD financing fees.<br>• <i>Con:</i> Suffers from slight Theta (time) decay.</td><td style='font-size: 13px;'><b>Entry:</b> 120-180 DTE. Delta > 0.80 (Deep ITM). No stop-losses.<br><br><b>Exit:</b> Never sell. Roll mechanically when 45 DTE is breached.</td><td style='font-size: 13px;'>{verdict}</td></tr>"
+            
+            # 3. Tail Hedges
+            elif base_tckr in ['XSP', 'SPX'] and not longs.empty and shorts.empty:
+                active_strats.add('TAIL')
+                strike = longs['strike'].iloc[0]
+                matrix_rows += f"<tr><td><b>120-DTE Black Swan Puts ({base_tckr})</b><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled. IRS Safe.</span></td><td style='color:#166534; font-size: 13px;'>{exp_str} {strike} Put<br><br><b>SAFEGUARD.</b> Deep Out-of-the-Money insurance policies silently resting on the ledger.</td><td style='font-size: 13px;'><b>Black Swan Insurance (The Barbell).</b><br>• <i>Pro:</i> Mathematically guarantees survival during multi-month systemic meltdowns.<br>• <i>Con:</i> 100% loss of capital expected. Acts as a constant Theta drag on the portfolio.</td><td style='font-size: 13px;'><b>Entry:</b> Financed strictly by 10% of VRP winnings. 120-150 DTE. Delta < -0.05.<br><br><b>Exit:</b> Monetize dynamically during deep market panic to buy physical assets at the bottom.</td><td style='font-size: 13px;'><b>Nominal.</b> Expect this to bleed to $0. Do not track for daily PnL. Let it ride to catch unexpected crashes.</td></tr>"
+            
+            # 4. Whale Hedges (SMH)
+            elif base_tckr == 'SMH' and not shorts.empty:
+                active_strats.add('WHALE')
+                strike = shorts['strike'].iloc[0]
+                matrix_rows += f"<tr><td><b>{base_tckr} Bear Puts (Whale Hedge)</b><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Equity Options carry physical assignment risk, exposing non-US persons.</span></td><td style='color:#b91c1c; font-size: 13px;'>{exp_str} {strike} Put<br><br><b>MACRO BET.</b> Highly speculative directional short tracking semiconductor capex trends.</td><td style='font-size: 13px;'><b>Tactical Directional Short.</b><br>• <i>Pro:</i> Massive asymmetric leverage if the macro thesis plays out perfectly.<br>• <i>Con:</i> Extremely low probability of success; high Theta burn.</td><td style='font-size: 13px;'><b>Entry:</b> Based entirely on CIO macro-economic thesis, not mechanical rules.<br><br><b>Exit:</b> Hit subjective price targets or expire worthless.</td><td style='font-size: 13px;'><b>Discretionary.</b> Track manually. Do not apply mechanical 21-DTE rules to macro lotto tickets.</td></tr>"
+            
+            # 5. Conviction Cash-Secured Puts (e.g., BE, MU)
+            elif not shorts.empty and base_tckr not in ['XSP', 'SPX', 'XND', 'NDX', 'QQQ', 'SMH']:
+                active_strats.add('CSP')
+                strike = shorts['strike'].iloc[0]
+                matrix_rows += f"<tr><td><b>{base_tckr} Conviction Puts (CSP)</b><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Assignment increases physical US Situs exposure. Manage allocations strictly.</span></td><td style='color:#166534; font-size: 13px;'>{exp_str} {strike} Put<br><br><b>CONVICTION ACQUISITION.</b> {base_tckr} is at ${spot:.2f}. Selling puts during high-fear drops to harvest elevated premium or average-down cost basis on owned assets.</td><td style='font-size: 13px;'><b>Volatility Harvesting / Averaging Down.</b><br>• <i>Pro:</i> Generates massive cash yield. Turns market fear into an opportunity to acquire desired assets at a discount.<br>• <i>Con:</i> Locks up heavy notional margin. Increases Estate Tax risk if held physically.</td><td style='font-size: 13px;'><b>Entry:</b> High IV Rank on targeted infrastructure/AI physical assets already in the portfolio.<br><br><b>Exit:</b> 50% Take-Profit to free up margin, or happily take physical assignment to increase position size.</td><td style='font-size: 13px;'><b>Nominal.</b> Keep collecting the premium. Assignment is an acceptable outcome based on CIO conviction.</td></tr>"
+
+# --- RIPE CONDITIONS EVALUATION FOR MATRIX ---
+spy_spot_9a = bench_df['SPY'].iloc[-1] if not bench_df.empty else 550.0
+spy_50_9a = bench_df['sma_50'].iloc[-1] if not bench_df.empty else 550.0
+spy_200_9a = bench_df['sma_200'].iloc[-1] if not bench_df.empty else 500.0
+live_alpha_gear_9a = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
+macro_soon_9a = any(ev['type'] == 'Macro' and 0 <= (ev['date'] - datetime.date.today()).days <= 1 for ev in calendar_events)
+
+bp_ripe = 15.0 <= vix_live and (spy_spot_9a > spy_50_9a or spy_spot_9a < spy_200_9a)
+bc_ripe = 15.0 <= vix_live <= 25.0 and spy_spot_9a < spy_50_9a
+ic_ripe = 15.0 <= vix_live <= 22.0 and (abs(spy_spot_9a - spy_50_9a)/spy_50_9a < 0.02 or live_alpha_gear_9a == 3)
+tm_ripe = vix_live < 15.0 and spy_spot_9a > spy_50_9a
+th_ripe = vix_live < 15.0
+
+def get_verdict_html(is_ripe, ripe_text="RIPE FOR DEPLOYMENT", banned_text="BANNED (Conditions Not Met)"):
+    if is_ripe: return f"<br><br><span style='color:#16a34a;'><b>🟢 {ripe_text}</b></span>"
+    else: return f"<br><br><span style='color:#dc2626;'><b>🔴 {banned_text}</b></span>"
+
+# --- RENDER MISSING STRATEGIES (STATIC ROWS) ---
+if 'VRP' not in active_strats:
+    matrix_rows += f"<tr><td><span style='color:#64748b'><b>XSP Bull Put Spreads</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Income Engine (VRP).</b><br>• <i>Pro:</i> High win-rate (90%+), defined maximum loss.<br>• <i>Con:</i> Asymmetric risk/reward.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX > 15. Exactly 45-50 DTE. ~0.20 Delta.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss, or 21-DTE Time Stop.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor VIX for deployment opportunities.{get_verdict_html(bp_ripe)}</td></tr>"
+
+# Add Bear Calls
+matrix_rows += f"<tr><td><span style='color:#64748b'><b>XSP Bear Call Spreads</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Gravity Trade.</b><br>• <i>Pro:</i> Capitalizes on structural downtrends or irrational exuberance.<br>• <i>Con:</i> Unlimited theoretical risk if unhedged.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX 15-25. SPY < 50 SMA.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor for structural breakdown.{get_verdict_html(bc_ripe)}</td></tr>"
+
+# Add Iron Condors
+matrix_rows += f"<tr><td><span style='color:#64748b'><b>XSP Iron Condors</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Efficiency Multiplier.</b><br>• <i>Pro:</i> Doubles income without doubling margin.<br>• <i>Con:</i> Vulnerable to violent directional breakouts.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX 15-22. Rangebound market.<br><br><b>Exit:</b> Mechanical 50% Take-Profit, 200% Stop-Loss.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor for rangebound consolidation.{get_verdict_html(ic_ripe)}</td></tr>"
+
+# Add Theta Machine
+matrix_rows += f"<tr><td><span style='color:#64748b'><b>The Theta Machine (Calendars)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Low-VIX Pivot.</b><br>• <i>Pro:</i> Positive Vega. Benefits if VIX wakes up.<br>• <i>Con:</i> Requires slow, grinding market.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> VIX < 15. SPY > 50 SMA. Buy 60-90 DTE, Sell 7-14 DTE.<br><br><b>Exit:</b> Close when short leg decays or roll.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor for complacency.{get_verdict_html(tm_ripe)}</td></tr>"
+
+# Add Macro IV Crush
+matrix_rows += f"<tr><td><span style='color:#64748b'><b>Macro IV Crush (Iron Butterfly)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Binary Event Trap.</b><br>• <i>Pro:</i> Aggressively harvests overnight Vega crush.<br>• <i>Con:</i> High risk if event causes massive gap beyond wings.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> 15 mins before Tier-1 Macro event. 0-DTE or 1-DTE.<br><br><b>Exit:</b> First 15-30 mins of next open.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor economic calendar.{get_verdict_html(macro_soon_9a)}</td></tr>"
+
+if 'SYNTH_BETA' not in active_strats:
+    matrix_rows += f"<tr><td><span style='color:#64748b'><b>XND/QQQ Calls (Synthetic Beta)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: MANDATORY.</b> Section 1256.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Growth Engine.</b> Replaces physical US ETFs.<br>• <i>Pro:</i> Frees up 80% of capital to earn 5% in Treasuries.<br>• <i>Con:</i> Suffers from slight Theta (time) decay.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> 120-180 DTE. Delta > 0.80 (Deep ITM). No stop-losses.<br><br><b>Exit:</b> Never sell. Roll mechanically when 45 DTE is breached.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Deploy capital to establish core macro exposure.</td></tr>"
+    
+if 'TAIL' not in active_strats:
+    matrix_rows += f"<tr><td><span style='color:#64748b'><b>120-DTE Black Swan Puts (XSP)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Estate is completely naked to Black Swan gap-downs.</td><td style='color:#64748b; font-size: 13px;'><b>Black Swan Insurance (The Barbell).</b><br>• <i>Pro:</i> Mathematically guarantees survival during multi-month systemic meltdowns.<br>• <i>Con:</i> 100% loss of capital expected. Acts as a constant Theta drag.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> Financed strictly by 10% of VRP winnings. 120-150 DTE. Delta < -0.05.<br><br><b>Exit:</b> Monetize dynamically during deep market panic.</td><td style='color:#64748b; font-size: 13px; color:#b91c1c;'><b>CRITICAL.</b> VRP Tail budget is sitting idle. Purchase deep OTM puts immediately.{get_verdict_html(th_ripe)}</td></tr>"
+
+if 'WHALE' not in active_strats:
+    matrix_rows += f"<tr><td><span style='color:#64748b'><b>SMH Bear Puts (Whale Hedge)</b></span><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Equity Options carry physical assignment risk.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>Tactical Directional Short.</b><br>• <i>Pro:</i> Massive asymmetric leverage if the macro thesis plays out perfectly.<br>• <i>Con:</i> Extremely low probability of success; high Theta burn.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> Based entirely on CIO macro-economic thesis, not mechanical rules.<br><br><b>Exit:</b> Hit subjective price targets or expire worthless.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor macro sector imbalances for entry.</td></tr>"
+
+if 'CSP' not in active_strats:
+    matrix_rows += f"<tr><td><span style='color:#64748b'><b>Conviction Puts (CSP)</b></span><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Assignment increases physical US Situs exposure.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>Volatility Harvesting / Averaging Down.</b><br>• <i>Pro:</i> Generates massive cash yield. Turns market fear into an opportunity.<br>• <i>Con:</i> Locks up heavy notional margin. Increases Estate Tax risk.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> High IV Rank on targeted infrastructure/AI physical assets.<br><br><b>Exit:</b> 50% Take-Profit to free up margin, or happily take physical assignment.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor high-conviction assets for IV spikes.</td></tr>"
+
+html_matrix = f"""
+<div style="background-color: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 30px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+    <table style="width: 100%; text-align: left; font-family: sans-serif; border-collapse: collapse;">
+        <thead>
+            <tr style="background-color: #1e293b; color: #ffffff; border-bottom: 2px solid #cbd5e1;">
+                <th style="padding: 12px; font-size: 14px; width: 15%;">Instrument & Tax Class</th>
+                <th style="padding: 12px; font-size: 14px; width: 20%;">Active Position & Live Status</th>
+                <th style="padding: 12px; font-size: 14px; width: 25%;">Strategic Thesis (Pros & Cons)</th>
+                <th style="padding: 12px; font-size: 14px; width: 20%;">Execution Protocol (Entry / Exit)</th>
+                <th style="padding: 12px; font-size: 14px; width: 20%;">Automated CFO Verdict</th>
+            </tr>
+        </thead>
+        <tbody>
+            {matrix_rows}
+        </tbody>
+    </table>
+</div>
+"""
+
+with st.expander("⚙️ Click to expand the Master Options Matrix & CFO Briefing", expanded=False):
+    st.markdown(html_matrix, unsafe_allow_html=True)
+    
+
+
+st.divider()
+
+# --- ENHANCEMENTS E.1 AND E.2: Beta-Weighted Risk & Catastrophe Coverage ---
+st.subheader("6B. Advanced Portfolio Risk Metrics", anchor="sec6b")
+exp_sec6b = st.expander("⚖️ View Advanced Portfolio Risk Metrics", expanded=False)
+col_r1, col_r2 = exp_sec6b.columns(2)
+with col_r1:
+    # Note: Beta-Weighted logic was hoisted to the HUD section at the top of the script.
+    # The variables total_bw_delta, bw_usd_exposure, bw_pct_nav, and delta_breakdown are reused here.
+    
+    st.markdown(f"""
+    <div style="background-color: #f8fafc; padding: 20px 20px 5px 20px; border-radius: 8px 8px 0 0; border: 1px solid #cbd5e1; border-bottom: none; text-align: center;">
+        <h4 style="margin: 0; color: #334155; font-size: 16px;" title="Beta-Weighted Delta converts all disparate assets into 'SPY Equivalent Shares'. It measures total directional risk. If this is +50%, the entire Estate behaves as if 50% of your cash is invested in the S&P 500.">SPY Beta-Weighted Delta (Estate-Wide) ⓘ</h4>
+        <div style="font-size: 28px; font-weight: bold; color: {'#16a34a' if bw_pct_nav > 0 else '#dc2626'}; margin-top: 10px;">{bw_pct_nav:+.1f}% of NAV</div>
+        <div style="font-size: 14px; color: #64748b; margin-bottom: 10px;">Directional Equivalent: {total_bw_delta:,.0f} SPY Shares (${bw_usd_exposure:,.0f})</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Plotly Horizontal Stacked Bar for Delta Breakdown
+    fig_delta = go.Figure()
+    color_map = {'Equities & ETFs': '#3b82f6', 'Synthetic Beta': '#8b5cf6', 'VRP & CSPs': '#16a34a', 'Tail Hedges': '#0f172a'}
+    for k, v in delta_breakdown.items():
+        pct_contrib = (v * spy_price / global_metrics['nav'] * 100) if global_metrics['nav'] > 0 else 0
+        if abs(pct_contrib) > 0.1:
+            fig_delta.add_trace(go.Bar(
+                y=['Source'], x=[pct_contrib], name=k, orientation='h', 
+                marker_color=color_map.get(k, '#94a3b8'),
+                text=f"{k}<br>{pct_contrib:+.1f}%", textposition='inside', insidetextanchor='middle'
+            ))
+    
+    fig_delta.update_layout(
+        barmode='relative', height=80, margin=dict(l=0, r=0, t=0, b=0),
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
+    )
+    st.plotly_chart(fig_delta, width="stretch")
+    
+    st.markdown(f"""
+    <div style="background-color: #f8fafc; padding: 0 20px 10px 20px; border-radius: 0 0 8px 8px; border: 1px solid #cbd5e1; border-top: none; text-align: center;">
+        <div style="font-size: 11px; color: #94a3b8; margin-top: -5px;">*Hover over the title ⓘ for definition. Chart displays allocation of directional risk.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+with col_r2:
+    th_payout = 0.0
+    for _, r in pos_df[pos_df['asset_class'] == 'Tail Hedge'].iterrows():
+        try:
+            parts = r['symbol'].split('_')
+            strike = float(parts[2])
+            dte = (pd.to_datetime(parts[1]) - pd.Timestamp.today()).days
+            pos = r['position']
+            S, V = fetch_live_data('XSP')
+            S_crash = S * 0.70  # CHANGED to 0.70 to strictly sync with the 30% macro shock parameter
+            V_crash = min(V * 2.5, 0.80) 
+            cost_price = r['avg_cost'] / 100
+            crash_price, _, _, _, _ = get_put_greeks(S_crash, strike, max(dte/365,0.001), LIVE_RF_RATE, V_crash)
+            th_payout += max(0, (crash_price - cost_price)) * pos * 100
+        except: pass
+        
+    coverage_ratio = (th_payout / opt_margin_total * 100) if opt_margin_total > 0 else 0
+    
+    # UI Tweak to prevent the 0% Contradiction when margin is $0
+    if opt_margin_total == 0 and th_payout > 0:
+        cov_text = "<span style='color: #16a34a;'>Fully Covered (No VRP Risk)</span>"
+    else:
+        cov_text = f"<span style='color: {'#16a34a' if coverage_ratio >= 100 else '#d97706'};'>{coverage_ratio:.1f}% Covered</span>"
+    
+    st.markdown(f"""
+    <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; text-align: center;">
+        <h4 style="margin: 0; color: #334155; font-size: 16px;">Black Swan Catastrophe Coverage (30% Crash)</h4>
+        <div style="font-size: 28px; font-weight: bold; margin-top: 10px;">{cov_text}</div>
+        <div style="font-size: 14px; color: #64748b;">Est. Tail Payout: ${th_payout:,.0f} vs Max Liability: ${opt_margin_total:,.0f}</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">*Synchronized with SWAN 30% Stress Test parameters.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.divider()
+
+st.divider()
+
+# --- SECTION 6C: THE S.W.A.N. STRESS TEST ---
+st.subheader("6C. The S.W.A.N. (Sleep Well At Night) Stress Test", anchor="sec6c")
+exp_sec6c = st.expander("🦢 View S.W.A.N. Stress Test", expanded=False)
+exp_sec6c.markdown("<p style='color: #4b5563; font-size: 14px; margin-bottom: 20px;'><strong>S.W.A.N.</strong> is an institutional framework designed to survive Black Swan events without panic. Adjust the slider below to stress-test the Estate's Barbell against sudden market collapses.</p>", unsafe_allow_html=True)
+
+# 1. Interactive Crash Slider
+sim_crash_input = exp_sec6c.slider("💥 Simulated Market Drop (%)", min_value=10, max_value=50, value=30, step=5, help="Simulates an instant drop in the S&P 500, calculating expected equity losses vs. Tail Hedge payouts.")
+
+swan_shock_pct = sim_crash_input / 100.0
+swan_vix_spike = 0.80
+
+# 2. Equity & Synthetic Beta Losses (with Alpha Ledger Slippage Penalty)
+swan_phys_loss = 0.0
+swan_slippage = 0.10 # 10% gap down slippage penalty on stops
+
+if 'df_alpha' in locals() and not df_alpha.empty:
+    for _, r in df_alpha.iterrows():
+        spot_usd = r['Spot Price']
+        shock_price = spot_usd * (1 - swan_shock_pct)
+        for chunk in r['stop_details']:
+            q = chunk['q']
+            sl_usd = chunk['sl_usd']
+            if sl_usd > 0 and shock_price < sl_usd:
+                # Stop triggered. Assume 10% slippage, but capped at the gap price
+                fill_price = min(sl_usd * (1 - swan_slippage), spot_usd)
+                fill_price = max(fill_price, shock_price)
+                chunk_loss = (spot_usd - fill_price) * q
+            else:
+                # Unprotected or SL so low it wasn't triggered
+                chunk_loss = (spot_usd - shock_price) * q
+            swan_phys_loss += chunk_loss
+
+spy_price_swan = bench_df['SPY'].iloc[-1] if not bench_df.empty else 550.0
+synth_usd_exp = delta_breakdown.get('Synthetic Beta', 0.0) * spy_price_swan if 'delta_breakdown' in locals() else 0.0
+swan_synth_loss = synth_usd_exp * swan_shock_pct
+
+swan_equity_loss = swan_phys_loss + swan_synth_loss
+
+# 3. VRP Stop-Loss Assumptions
+swan_vrp_loss = 0.0
+if not journal_raw_df.empty:
+    open_vrp = journal_raw_df[pd.isnull(journal_raw_df['Close Date'])]
+    for _, r in open_vrp.iterrows():
+        prem = r.get('Premium Collected (USD)', 0)
+        qty = r.get('Quantity', 1)
+        if prem > 0:
+            # Assuming 200% stop loss triggers (Net loss = 2x Premium)
+            swan_vrp_loss += (prem * 2.0) * 100 * qty
+
+# 4. Tail Hedge Payout Simulation
+swan_th_payout = 0.0
+for _, r in pos_df[pos_df['asset_class'] == 'Tail Hedge'].iterrows():
+    try:
+        parts = r['symbol'].split('_')
+        strike = float(parts[2])
+        dte = (pd.to_datetime(parts[1]) - pd.Timestamp.today()).days
+        pos = r['position']
+        S, V = fetch_live_data('XSP')
+        S_crash = S * (1 - swan_shock_pct)
+        V_crash = swan_vix_spike 
+        cost_price = r['avg_cost'] / 100 
+        crash_price, _, _, _, _ = get_put_greeks(S_crash, strike, max(dte/365, 0.001), LIVE_RF_RATE, V_crash)
+        swan_th_payout += max(0, (crash_price - cost_price)) * pos * 100
+    except: pass
+
+swan_net_impact = -swan_equity_loss - swan_vrp_loss + swan_th_payout
+swan_ending_nav = global_metrics['nav'] + swan_net_impact
+swan_estate_impact_pct = (swan_net_impact / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+
+col_swan_chart, col_swan_text = exp_sec6c.columns([2, 1])
+
+with col_swan_chart:
+    fig_waterfall = go.Figure(go.Waterfall(
+        name="SWAN", orientation="v",
+        measure=["absolute", "relative", "relative", "relative", "total"],
+        x=["Starting NAV", f"Equities (-{sim_crash_input}%)", "VRP Stops", "Tail Payout", "Ending NAV"],
+        textposition="outside",
+        text=[f"${global_metrics['nav']/1000:.0f}k", 
+              f"-${swan_equity_loss/1000:.0f}k", 
+              f"-${swan_vrp_loss/1000:.0f}k", 
+              f"+${swan_th_payout/1000:.0f}k", 
+              f"${swan_ending_nav/1000:.0f}k"],
+        y=[global_metrics['nav'], -swan_equity_loss, -swan_vrp_loss, swan_th_payout, 0],
+        connector={"line":{"color":"rgb(63, 63, 63)"}},
+        decreasing={"marker":{"color":"#dc2626"}},
+        increasing={"marker":{"color":"#16a34a"}},
+        totals={"marker":{"color":"#1d4ed8"}}
+    ))
+    fig_waterfall.update_layout(
+        title=f"Portfolio Impact Waterfall (-{sim_crash_input}% S&P 500 Crash)",
+        margin=dict(l=20, r=20, t=40, b=20),
+        plot_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(gridcolor='LightGray', zeroline=True, zerolinecolor='black')
+    )
+    exp_sec6c.plotly_chart(fig_waterfall, width="stretch")
+    
+    # --- SANITIZED SWAN FOR PUBLISHER EXPORT ---
+    swan_eq_pct = (swan_equity_loss / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+    swan_vrp_pct = (swan_vrp_loss / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+    swan_th_pct = (swan_th_payout / global_metrics['nav']) * 100 if global_metrics['nav'] > 0 else 0
+    swan_end_pct = 100 - swan_eq_pct - swan_vrp_pct + swan_th_pct
+    
+    fig_swan_sanitized = go.Figure(go.Waterfall(
+        name="SWAN", orientation="v",
+        measure=["absolute", "relative", "relative", "relative", "total"],
+        x=["Starting NAV", f"Equities (-{sim_crash_input}%)", "VRP Stops", "Tail Payout", "Ending NAV"],
+        textposition="outside",
+        text=["100%", f"-{swan_eq_pct:.1f}%", f"-{swan_vrp_pct:.1f}%", f"+{swan_th_pct:.1f}%", f"{swan_end_pct:.1f}%"],
+        y=[100, -swan_eq_pct, -swan_vrp_pct, swan_th_pct, 0],
+        connector={"line":{"color":"rgb(63, 63, 63)"}},
+        decreasing={"marker":{"color":"#dc2626"}},
+        increasing={"marker":{"color":"#16a34a"}},
+        totals={"marker":{"color":"#1d4ed8"}}
+    ))
+    fig_swan_sanitized.update_layout(
+        title=f"Portfolio Impact Waterfall (-{sim_crash_input}% S&P 500 Crash)",
+        margin=dict(l=20, r=20, t=40, b=20),
+        plot_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(gridcolor='LightGray', zeroline=True, zerolinecolor='black')
+    )
+    st.session_state['pub_swan'] = fig_swan_sanitized
+
+with col_swan_text:
+    impact_color = "#16a34a" if swan_estate_impact_pct >= -10 else "#dc2626"
+    
+    vix_live_val = fetch_live_data('^VIX')[1]
+    vix_multiplier = (swan_vix_spike * 100) / vix_live_val if vix_live_val > 0 else 5.0
+    expansion_factor = min(3.0, 1.0 + (vix_multiplier * 0.5 * (sim_crash_input / 100.0)))
+    stressed_margin = opt_margin_total * expansion_factor
+    margin_cushion = tot_cash - stressed_margin
+    margin_status_color = "#16a34a" if margin_cushion >= 0 else "#dc2626"
+    margin_status_text = "SAFE (Sufficient Cash)" if margin_cushion >= 0 else "DANGER (Margin Call)"
+    
+    swan_html = f'''
+    <div style="background-color: #f8fafc; padding: 25px; border-radius: 8px; border: 1px solid #cbd5e1;">
+        <h4 style="margin-top: 0; color: #0f172a; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">CFO Executive Summary</h4>
+        <div style="display: flex; justify-content: space-between; margin-top: 15px;">
+            <span style="font-size: 16px; color: #475569;">Market Impact:</span>
+            <span style="font-size: 18px; font-weight: bold; color: #dc2626;">-{sim_crash_input}.0%</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+            <span style="font-size: 16px; color: #475569;">Estate Impact:</span>
+            <span style="font-size: 18px; font-weight: bold; color: {impact_color};">{swan_estate_impact_pct:+.1f}%</span>
+        </div>
+        <hr style="margin: 20px 0; border-color: #e5e7eb;">
+        <p style="font-size: 14px; color: #334155; font-style: italic; line-height: 1.6;">
+            "If the S&P 500 crashes {sim_crash_input}% tomorrow, the Estate will only suffer an estimated <b>{abs(swan_estate_impact_pct):.1f}%</b> drawdown. 
+            The <b>${(swan_equity_loss + swan_vrp_loss):,.0f}</b> losses from our core equity exposure and VRP stops are overwhelmingly absorbed 
+            by a projected <b>${swan_th_payout:,.0f}</b> payout from our deep OTM Black Swan insurance policies. Furthermore, the <b>{pct_cash:.1f}%</b> (${tot_cash:,.0f}) allocated to Risk-Free Yield (IB01/Cash) acts as a massive concrete anchor, insulating the principal from market shocks."
+        </p>
+    </div>
+    <div style="background-color: #fffbeb; padding: 20px; border-radius: 8px; border: 1px solid #fde047; margin-top: 15px;">
+        <h4 style="margin-top: 0; color: #854d0e; border-bottom: 2px solid #fef08a; padding-bottom: 10px;">Predictive Margin Shock (TIMS)</h4>
+        <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+            <span style="font-size: 14px; color: #a16207;">Live Options Margin:</span>
+            <span style="font-size: 15px; font-weight: bold; color: #854d0e;">${opt_margin_total:,.0f}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+            <span style="font-size: 14px; color: #a16207;">Stressed Margin ({expansion_factor:.1f}x):</span>
+            <span style="font-size: 15px; font-weight: bold; color: #dc2626;">${stressed_margin:,.0f}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+            <span style="font-size: 14px; color: #a16207;">Available Cash (IB01):</span>
+            <span style="font-size: 15px; font-weight: bold; color: #16a34a;">${tot_cash:,.0f}</span>
+        </div>
+        <hr style="margin: 15px 0; border-color: #fef08a;">
+        <div style="text-align: center;">
+            <span style="font-size: 13px; color: #a16207; text-transform: uppercase; font-weight: bold;">Margin Call Risk</span><br>
+            <span style="font-size: 20px; font-weight: 900; color: {margin_status_color};">{margin_status_text}</span>
+        </div>
+    </div>
+    '''
+    exp_sec6c.markdown(swan_html, unsafe_allow_html=True)
+
+st.divider()
+
+st.divider()
+
+st.divider()
+
+st.divider()
 
 st.divider()
 
