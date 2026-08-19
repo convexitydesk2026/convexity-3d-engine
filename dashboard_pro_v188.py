@@ -297,7 +297,6 @@ with st.sidebar:
     - [Market Flow](#sec1c)
     - [Capital Breakdown](#sec1)
     - [Options Center](#sec6)
-    - [6B. Advanced Portfolio Risk Metrics](#sec6b)
     - [100. Project Management & Sprint Tracker](#sec100)
     - [101. Publisher Export Pipeline (Ghost.org)](#sec101)
     """)
@@ -5346,7 +5345,6 @@ with st.expander("⚙️ Click to expand the Master Options Matrix & CFO Briefin
 st.divider()
 
 # --- ENHANCEMENTS E.1 AND E.2: Beta-Weighted Risk & Catastrophe Coverage ---
-st.subheader("6B. Advanced Portfolio Risk Metrics", anchor="sec6b")
 exp_sec6b = st.expander("⚖️ View Advanced Portfolio Risk Metrics", expanded=False)
 col_r1, col_r2 = exp_sec6b.columns(2)
 with col_r1:
