@@ -1,6 +1,6 @@
 """
 =============================================================================
-Script Name: sync_engine_v39.py
+Script Name: sync_engine.py
 Purpose: Phase 12 of the Local-First Estate Architecture.
          - UPDATED: v39 - Terminal Log Sanitization (Privacy Mode). Masks raw IBKR account numbers in stdout.
          - UPDATED: v38 - Integrated estate_env.py for dynamic OS-agnostic pathing.

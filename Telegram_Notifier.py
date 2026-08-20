@@ -1,6 +1,6 @@
 """
 =============================================================================
-Script Name: Telegram_Notifier_v40.py
+Script Name: Telegram_Notifier.py
 Purpose: Headless Streamlit rendering and Telegram transmission.
          - UPDATED: v40 - Added routing for Market Flow social media assets.
          - UPDATED: v39 - Pointed subprocess to dashboard_pro_v187.py
@@ -123,7 +123,7 @@ def snap_and_send():
     evaluate_cfo_alerts()
     print("\n[NOTIFIER] Spinning up headless Streamlit server...")
     # v38 FIX: Pointed to dashboard_pro_v184.py
-    streamlit_process = subprocess.Popen(["streamlit", "run", "dashboard_pro_v188.py", "--server.port", "8599", "--server.headless", "true"], cwd=TARGET_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    streamlit_process = subprocess.Popen(["streamlit", "run", "dashboard_pro.py", "--server.port", "8599", "--server.headless", "true"], cwd=TARGET_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(12)
     
     try:

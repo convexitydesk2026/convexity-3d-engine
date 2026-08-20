@@ -1,5 +1,5 @@
 ﻿import sys
-with open('dashboard_pro_v188.py', 'r', encoding='utf-8') as f:
+with open('dashboard_pro.py', 'r', encoding='utf-8') as f:
     lines = f.readlines()
 
 start_idx = -1
@@ -40,7 +40,7 @@ if start_idx != -1 and end_idx != -1:
     
     del lines[start_idx:end_idx+1]
     lines.insert(start_idx, new_sidebar)
-    with open('dashboard_pro_v188.py', 'w', encoding='utf-8') as f:
+    with open('dashboard_pro.py', 'w', encoding='utf-8') as f:
         f.writelines(lines)
     print("Sidebar updated.")
 else:

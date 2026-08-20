@@ -1,6 +1,6 @@
 """
 =============================================================================
-Script Name: dashboard_pro_v188.py
+Script Name: dashboard_pro.py
 Purpose: The Streamlit Frontend (Family Office Estate Architecture)
 ⚙️ HOW TO LAUNCH THIS DASHBOARD:
 Simply double-click the 'Launch_Dashboard.bat' file.
@@ -11,7 +11,7 @@ CHANGELOG (v188 PRO):
 - STAGE 95 (v187 PRO): Integrated Tiered Drawdown Scaling (Rubber Band Model) into Alpha Risk Calculator and TOR limits.
 - STAGE 94 (v186 PRO): Bug Fix - Exempted Tail Hedges (Short Strike 0.0) from the 21-DTE Gamma Cliff scanner.
 - STAGE 93 (v185 PRO): Integrated "Definitive Quantitative Mapping" (Ripe Conditions) into Executive Alerts and Master Options Matrix.
-- STAGE 92 (v184 PRO): Updated SYNC_SCRIPT variable to point to sync_engine_v39.py (Privacy Mode).
+- STAGE 92 (v184 PRO): Updated SYNC_SCRIPT variable to point to sync_engine.py (Privacy Mode).
 =============================================================================
 """
 import streamlit as st
@@ -42,7 +42,7 @@ logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="Master Dashboard", layout="wide")
 
-SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine_v39.py")
+SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine.py")
 
 # --- YFINANCE REDUNDANCY / FALLBACK HELPERS ---
 def get_fallback_value(key, default=1.0):
@@ -341,7 +341,7 @@ with st.sidebar:
     if st.button("🌐 Generate Market Flow Report", width="stretch"):
         with st.spinner("Calculating Institutional Flow & Generating PDF... Please wait (~15s)"):
             try:
-                subprocess.run(["python", "market_flow_engine_v8.py"], cwd=TARGET_DIR, check=True)
+                subprocess.run(["python", "market_flow_engine.py"], cwd=TARGET_DIR, check=True)
                 st.success("Market Flow Updated & PDF Ready!")
                 st.rerun()
             except Exception as e:

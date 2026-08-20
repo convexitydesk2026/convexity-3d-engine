@@ -1,6 +1,6 @@
 ﻿import sys
 
-with open('dashboard_pro_v188.py', 'r', encoding='utf-8') as f:
+with open('dashboard_pro.py', 'r', encoding='utf-8') as f:
     lines = f.readlines()
 
 start_idx = -1
@@ -36,7 +36,7 @@ if insert_idx == -1:
 print(f'Inserting at index {insert_idx}')
 lines = lines[:insert_idx] + ['\n'] + section_0_lines + ['\n'] + lines[insert_idx:]
 
-with open('dashboard_pro_v188.py', 'w', encoding='utf-8') as f:
+with open('dashboard_pro.py', 'w', encoding='utf-8') as f:
     f.writelines(lines)
 
 print('Success')

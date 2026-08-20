@@ -6,13 +6,13 @@ THE FAMILY OFFICE SESSION HANDOFF DOSSIER (AUGUST 16, 2026)
 •	[C1 - Developer] Tiered Drawdown Governor (Rubber Band Model) [NEW]: Ripped out the rigid 0.5% hard-lock and replaced it with a dynamic 3.0% Tiered Drawdown Multiplier. The system now automatically scales Risk Per Trade (RPT) and Total Open Risk (TOR) down to 0.5x or 0.25x during drawdowns, maximizing the Sharpe ratio and allowing for compounding recovery.
 •	[C1 - Developer] Multi-Timeframe ATR Risk Sizing [NEW]: Upgraded the Alpha Risk Calculator to support Daily, Weekly, and Monthly ATR horizons, dynamically widening minimum stop-loss distances to prevent long-term core holdings from being whipsawed by short-term noise.
 •	[C1 - Developer] The 95% HITL Publishing Pipeline [NEW]: Built ghost_publisher.py to securely authenticate with the Ghost Admin API via JWT. The script automatically pushes the Market Flow HTML matrix to the website as an unpublished draft, bypassing Ghost's HTML sanitizer using <!--kg-card-begin: html--> magic tags.
-•	[C1 - Developer] Automated Social Media Asset Generation [NEW]: Upgraded market_flow_engine_v12.py to utilize Playwright viewport cropping, generating a perfectly framed, high-resolution PNG of the "Top Actionable Discoveries" for X.com. Extracted the insights into a clean Markdown string (market_flow_social.txt).
+•	[C1 - Developer] Automated Social Media Asset Generation [NEW]: Upgraded market_flow_engine.py to utilize Playwright viewport cropping, generating a perfectly framed, high-resolution PNG of the "Top Actionable Discoveries" for X.com. Extracted the insights into a clean Markdown string (market_flow_social.txt).
 •	[C1 - Developer] Pre-Market Telegram Routing [NEW]: Rewrote the estate_daemon.py scheduler to execute a dedicated run_morning_publishing sequence at exactly 7:00 AM ET. The daemon now generates the report, pushes the draft to Ghost, and routes the X.com promo image and copy directly to the CIO's phone via Telegram for 1-click publishing.
 •	[C3 - COO] Go-To-Market & Legal Shielding [NEW]: Drafted and published the official "Quantitative Methodology" page on ConvexityDesk.com. Established the daily X.com publishing workflow, leveraging the automation as a brand-building tool to attract institutional subscribers.
 2. CURRENT PROJECT STATE & ARCHITECTURE
 •	Development Environment: Google Antigravity IDE with integrated Gemini 3.1 Pro / Claude 4.6 AI agents. Version control managed via local, air-gapped Git. Automated testing enforced via pytest.
 •	Strategic Pivot (The Publisher Model): Officially live. The architecture is successfully bifurcated into two distinct branches:
-o	The Private Engine: The local-first, proprietary dashboard (dashboard_pro_v188.py) used exclusively to manage the CIO's personal Estate.
+o	The Private Engine: The local-first, proprietary dashboard (dashboard_pro.py) used exclusively to manage the CIO's personal Estate.
 o	The Public PLG (Product-Led Growth) Funnel: A lightweight, web-hosted Streamlit tool (convexity-3d.streamlit.app) designed to capture emails and drive top-of-funnel leads to the premium Ghost.org financial newsletter (convexitydesk.com).
 •	Frontend Framework: Streamlit (Python). The private dashboard utilizes custom HTML/CSS, Base64 iframe injections, and Plotly 2D/3D charting. The public funnel utilizes app.py running on Streamlit Community Cloud.
 •	Backend & Database: Local-first SQLite (estate_data.db) operating strictly in WAL mode. estate_config.ini acts as the central source of truth for dynamic Silo mapping and API keys. estate_env.py acts as the central nervous system for OS-agnostic pathing.
@@ -34,16 +34,16 @@ o	The Public PLG (Product-Led Growth) Funnel: A lightweight, web-hosted Streamli
 •	THE FAMILY OFFICE SESSION HANDOFF DOSSIER (AUGUST 16, 2026).pdf
 [C1 - DEVELOPER] (Core Architecture & Python Scripts)
 •	dashboard_pro_v190.py [Active / UPDATED]
-•	market_flow_engine_v12.py [Active / NEW]
+•	market_flow_engine.py [Active / NEW]
 •	ghost_publisher.py [Active / NEW]
-•	Telegram_Notifier_v40.py [Active / NEW]
+•	Telegram_Notifier.py [Active / NEW]
 •	test_math.py [Active / NEW]
 •	.gitignore [Active / NEW]
 •	estate_daemon.py [Active]
-•	sync_engine_v39.py [Active]
-•	attribution_engine_v25.py [Active]
-•	flex_ledger_engine_v5.py [Active]
-•	EOD_Cushion_Check_v2.py [Active]
+•	sync_engine.py [Active]
+•	attribution_engine.py [Active]
+•	flex_ledger_engine.py [Active]
+•	EOD_Cushion_Check.py [Active]
 •	estate_env.py [Active]
 •	Launch_Dashboard.bat [Active]
 •	Run_Estate_Daemon.bat [Active]

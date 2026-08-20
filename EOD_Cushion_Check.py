@@ -1,6 +1,6 @@
 """
 =============================================================================
-Script Name: EOD_Cushion_Check_v2.py
+Script Name: EOD_Cushion_Check.py
 Purpose: Enforces the Minervini "Day 1 Squat" and Trend Retest rules.
          Runs at 3:30 PM ET to check if Open Alpha Campaigns are negative.
          - v2: Integrated estate_env.py for dynamic OS-agnostic pathing.

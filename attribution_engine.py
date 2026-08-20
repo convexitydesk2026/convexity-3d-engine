@@ -1,6 +1,6 @@
 """
 =============================================================================
-Script Name: attribution_engine_v25.py
+Script Name: attribution_engine.py
 Purpose: Parses the official IBKR Flex Query (MTM and CNAV).
          - V25 FIX: Integrated estate_env.py for dynamic OS-agnostic pathing.
          - V24 FIX: Banned all MTMP Subtotals (`if not sym_str: continue`).

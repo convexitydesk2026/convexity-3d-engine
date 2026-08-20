@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-File:        market_flow_engine_v12.py
+File:        market_flow_engine.py
 Location:    Dynamic (Resolved via estate_env.py)
 Description: Automated Market Relative Strength & Institutional Flow Dashboard.
              - Unified, Globally Sortable Architecture
              - Frozen Benchmark (RSP) & Sticky Headers (Solid Background Fix)
              - Volume Climax Indicators (🔥)
              - Output: market_flow_report.html & market_flow_report.pdf
-Launch the UI by running exactly: streamlit run market_flow_engine_v12.py             
+Launch the UI by running exactly: streamlit run market_flow_engine.py             
 Author:      Virtual CFO
 Date:        August 2026
 Version:     12.0 (Forced Ghost CSS overrides: kg-width-wide and !important max-height)

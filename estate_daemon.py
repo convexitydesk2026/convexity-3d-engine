@@ -4,7 +4,7 @@ Script Name: estate_daemon.py
 Purpose: Native System Tray Daemon & Timezone-Aware Scheduler.
          Replaces Run_Estate_Sync.bat and Windows Task Scheduler.
          Uses Option B (Subprocess Isolation) for maximum stability.
-         - UPDATE: Pointed launch_dashboard to dashboard_pro_v188.py
+         - UPDATE: Pointed launch_dashboard to dashboard_pro.py
 =============================================================================
 """
 import os
@@ -34,15 +34,15 @@ def run_script(script_name):
         print(f"[!] Error: {script_name} not found in {TARGET_DIR}")
 
 def run_eod_cushion_check():
-    run_script("EOD_Cushion_Check_v2.py")
+    run_script("EOD_Cushion_Check.py")
 
 def run_morning_publishing():
     """Executes the 7:00 AM ET morning publishing sequence."""
     def sequence():
         scripts = [
-            "market_flow_engine_v12.py",
+            "market_flow_engine.py",
             "ghost_publisher.py",
-            "Telegram_Notifier_v40.py"
+            "Telegram_Notifier.py"
         ]
         for script in scripts:
             script_path = os.path.join(TARGET_DIR, script)
@@ -63,10 +63,10 @@ def run_full_sync_sequence():
     """Executes the full 7:15 PM sync sequence sequentially in a background thread."""
     def sequence():
         scripts = [
-            "sync_engine_v39.py",
-            "attribution_engine_v25.py",
-            "flex_ledger_engine_v5.py",
-            "Telegram_Notifier_v40.py"
+            "sync_engine.py",
+            "attribution_engine.py",
+            "flex_ledger_engine.py",
+            "Telegram_Notifier.py"
         ]
         for script in scripts:
             script_path = os.path.join(TARGET_DIR, script)
@@ -89,7 +89,7 @@ def launch_dashboard():
     """Launches the Streamlit dashboard."""
     print(f"[{datetime.now(EST).strftime('%H:%M:%S')}] Launching Dashboard...")
     try:
-        subprocess.Popen([sys.executable, "-m", "streamlit", "run", "dashboard_pro_v188.py"], cwd=TARGET_DIR)
+        subprocess.Popen([sys.executable, "-m", "streamlit", "run", "dashboard_pro.py"], cwd=TARGET_DIR)
     except Exception as e:
         print(f"[!] Failed to launch dashboard: {e}")
 
