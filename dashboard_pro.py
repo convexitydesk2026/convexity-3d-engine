@@ -78,6 +78,29 @@ def load_silo_map():
 
 SILO_MAP = load_silo_map()
 
+# --- DYNAMIC TICKER TRANSLATION MAP FOR YFINANCE ---
+def load_ticker_mapping():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS ticker_mapping (ibkr_ticker TEXT PRIMARY KEY, yahoo_ticker TEXT)")
+    
+    # Seed NOA3 to NOKIA.HE if the table is completely empty
+    c.execute("SELECT COUNT(*) FROM ticker_mapping")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT INTO ticker_mapping (ibkr_ticker, yahoo_ticker) VALUES ('NOA3', 'NOKIA.HE')")
+        conn.commit()
+        
+    df_map = pd.read_sql_query("SELECT * FROM ticker_mapping", conn)
+    conn.close()
+    return dict(zip(df_map['ibkr_ticker'], df_map['yahoo_ticker']))
+
+TICKER_MAP = load_ticker_mapping()
+
+def clean_ticker(symbol):
+    if not symbol or pd.isna(symbol): return ""
+    sym = str(symbol).split()[0].upper()
+    return TICKER_MAP.get(sym, sym)
+
 COLOR_PALETTE = {
     'IB01': '#93c5fd', 'CSPX': '#f97316', 'CNDX': '#8b5cf6',
     'ITWN': '#14b8a6', 'CSKR': '#f472b6', 'CNYA': '#fb923c',
@@ -149,6 +172,19 @@ def get_vix_term_structure():
     except Exception:
         return 0.0, 0.0
 
+def get_live_ivr(bench_df, vix_live):
+    """Calculates live IV Rank based on 252-day high/low from benchmarks and live VIX."""
+    try:
+        if not bench_df.empty and 'vix_high_252' in bench_df.columns:
+            vix_252_high = bench_df['vix_high_252'].iloc[-1]
+            vix_252_low = bench_df['vix_low_252'].iloc[-1]
+            v_high = max(vix_252_high, vix_live)
+            v_low = min(vix_252_low, vix_live)
+            if v_high - v_low > 0:
+                return ((vix_live - v_low) / (v_high - v_low)) * 100
+    except: pass
+    return 0.0
+
 @st.cache_data(ttl=900)
 def get_distribution_tracker():
     """Fetches last 10 days of SPY, QQQ, and RSP to track consecutive red candles (Close < Open)."""
@@ -180,11 +216,56 @@ def get_distribution_tracker():
     except Exception:
         return {"SPY": (0, []), "QQQ": (0, []), "RSP": (0, [])}
 
+@st.cache_data(ttl=900)
+def get_spy_adx(period=14):
+    try:
+        data = yf.download("SPY", period="60d", progress=False, auto_adjust=False)
+        if data.empty: return 0.0
+        
+        if isinstance(data.columns, pd.MultiIndex):
+            high = data['High']['SPY']
+            low = data['Low']['SPY']
+            close = data['Close']['SPY']
+        else:
+            high = data['High']
+            low = data['Low']
+            close = data['Close']
+            
+        plus_dm = high.diff()
+        minus_dm = low.shift(1) - low
+        
+        plus_dm = pd.Series(np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0), index=high.index)
+        minus_dm = pd.Series(np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0), index=high.index)
+        
+        tr1 = high - low
+        tr2 = abs(high - close.shift(1))
+        tr3 = abs(low - close.shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        def rma(x, n):
+            a = np.full_like(x, np.nan)
+            a[n] = x.iloc[1:n+1].mean()
+            for i in range(n+1, len(x)):
+                a[i] = (a[i-1] * (n - 1) + x.iloc[i]) / n
+            return pd.Series(a, index=x.index)
+            
+        atr = rma(tr, period)
+        plus_di = 100 * (rma(plus_dm, period) / atr)
+        minus_di = 100 * (rma(minus_dm, period) / atr)
+        
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx = rma(dx, period)
+        
+        val = adx.dropna().iloc[-1]
+        return float(val) if not np.isnan(val) else 0.0
+    except Exception as e:
+        return 0.0
+
 @st.cache_data(ttl=3600)
 def get_fundamentals_and_news(symbol):
     """Fetches Forward P/E, Short Interest, Market Cap, Avg Volume, and recent news headlines."""
     try:
-        clean_sym = symbol.split()[0]
+        clean_sym = clean_ticker(symbol)
         tkr = yf.Ticker(clean_sym)
         info = tkr.info
         fwd_pe = info.get('forwardPE', 'N/A')
@@ -225,7 +306,7 @@ def get_fundamentals_and_news(symbol):
 def get_relative_strength_stats(symbol):
     """Calculates 3-Month Thrust vs SPY and RVOL for the ticker and its Sector ETF."""
     try:
-        clean_sym = symbol.split()[0]
+        clean_sym = clean_ticker(symbol)
         sector_map = {
             'Technology': 'XLK', 'Financial Services': 'XLF', 'Healthcare': 'XLV',
             'Consumer Cyclical': 'XLY', 'Industrials': 'XLI', 'Utilities': 'XLU',
@@ -433,6 +514,42 @@ with st.sidebar:
             st.caption("Watchlist is empty.")
         conn.close()
 
+    with st.expander("🌍 Foreign Ticker Mapping"):
+        st.markdown("Map IBKR tickers to Yahoo Finance (e.g., NOA3 ➔ NOKIA.HE)")
+        with st.form("ticker_map_form", clear_on_submit=True):
+            col_ibkr, col_yf = st.columns(2)
+            with col_ibkr:
+                new_ibkr = st.text_input("IBKR Ticker").upper()
+            with col_yf:
+                new_yf = st.text_input("Yahoo Ticker").upper()
+            
+            if st.form_submit_button("Add Mapping", use_container_width=True):
+                if new_ibkr and new_yf:
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
+                    c.execute("INSERT OR REPLACE INTO ticker_mapping (ibkr_ticker, yahoo_ticker) VALUES (?, ?)", (new_ibkr, new_yf))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Mapped {new_ibkr} ➔ {new_yf}")
+                    st.rerun()
+                    
+        st.markdown("**Active Mappings:**")
+        if TICKER_MAP:
+            for ibkr_t, yf_t in TICKER_MAP.items():
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.write(f"**{ibkr_t}** ➔ {yf_t}")
+                with c2:
+                    if st.button("X", key=f"del_map_{ibkr_t}"):
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        c.execute("DELETE FROM ticker_mapping WHERE ibkr_ticker=?", (ibkr_t,))
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+        else:
+            st.caption("No custom mappings found.")
+
 # --- HELPER FUNCTIONS ---
     
 @st.cache_data(ttl=86400) # Cache for 24 hours to prevent spamming Yahoo
@@ -453,7 +570,7 @@ def get_sector(symbol, asset_class):
         return row[0]
         
     # Clean the ticker for Yahoo Finance (removes IBKR local exchange tags like 'TSE' or 'HEX')
-    clean_sym = symbol.split()[0] 
+    clean_sym = clean_ticker(symbol)
     try:
         info = yf.Ticker(clean_sym).info
         sector = info.get('sector', 'Unknown Equities')
@@ -468,7 +585,7 @@ def get_sector(symbol, asset_class):
 @st.cache_data(ttl=86400) # Cache for 24 hours to prevent Yahoo API rate limits
 def get_upcoming_earnings(symbol):
     try:
-        clean_sym = symbol.split()[0]
+        clean_sym = clean_ticker(symbol)
         tkr = yf.Ticker(clean_sym)
         cal = tkr.calendar
         # yfinance API returns different structures depending on the version. We handle all safely:
@@ -492,7 +609,7 @@ def get_upcoming_earnings(symbol):
 @st.cache_data(ttl=3600)
 def get_stock_smas(symbol):
     try:
-        clean_sym = symbol.split()[0]
+        clean_sym = clean_ticker(symbol)
         # Fetch last 100 days to safely ensure we have 50 trading days for the moving average
         hist = yf.Ticker(clean_sym).history(period='100d')
         if not hist.empty and len(hist) >= 50:
@@ -523,7 +640,7 @@ def get_sector_and_industry(symbol, asset_class):
         conn.close()
         return row[0], row[1]
         
-    clean_sym = symbol.split()[0]
+    clean_sym = clean_ticker(symbol)
     try:
         info = yf.Ticker(clean_sym).info
         sector = info.get('sector', 'Unknown Equities')
@@ -540,7 +657,7 @@ def get_sector_and_industry(symbol, asset_class):
 @st.cache_data(ttl=3600)
 def get_stock_smas_v2(symbol):
     try:
-        clean_sym = symbol.split()[0]
+        clean_sym = clean_ticker(symbol)
         hist = yf.Ticker(clean_sym).history(period='300d')
         if not hist.empty and len(hist) >= 20:
             sma_20 = float(hist['Close'].rolling(window=20).mean().iloc[-1])
@@ -554,7 +671,7 @@ def get_stock_smas_v2(symbol):
 @st.cache_data(ttl=3600)
 def get_atr(symbol, period=14, timeframe='Daily'):
     try:
-        clean_sym = symbol.split()[0]
+        clean_sym = clean_ticker(symbol)
         
         if timeframe == 'Weekly':
             df = yf.Ticker(clean_sym).history(period="1y", interval="1wk")
@@ -775,6 +892,17 @@ def load_benchmarks(start_date, end_date):
     bench_df['sma_10'] = bench_df['SPY'].rolling(window=10).mean()
     bench_df['sma_20'] = bench_df['SPY'].rolling(window=20).mean()
     bench_df['sma_50'] = bench_df['SPY'].rolling(window=50).mean()
+    
+    if '^VIX' in bench_df.columns:
+        bench_df['vix_high_252'] = bench_df['^VIX'].rolling(window=252, min_periods=100).max()
+        bench_df['vix_low_252'] = bench_df['^VIX'].rolling(window=252, min_periods=100).min()
+        denom = bench_df['vix_high_252'] - bench_df['vix_low_252']
+        bench_df['iv_rank'] = ((bench_df['^VIX'] - bench_df['vix_low_252']) / denom) * 100
+        bench_df['iv_rank'] = bench_df['iv_rank'].fillna(0)
+    else:
+        bench_df['iv_rank'] = 0.0
+        bench_df['vix_high_252'] = 25.0
+        bench_df['vix_low_252'] = 12.0
     
     bench_df = bench_df[bench_df['date'] >= pd.to_datetime(start_date)].copy()
                
@@ -1489,7 +1617,8 @@ th_available = th_budget - th_deployed
 
 # VIX Crush Alert logic
 vix_live = fetch_live_data('^VIX')[1]
-is_vix_crush = vix_live < 15.0
+ivr_live = get_live_ivr(bench_df, vix_live)
+is_vix_crush = ivr_live < 30.0
 
 # VIX Term Structure Alert
 vix9d, vix3m = get_vix_term_structure()
@@ -1498,11 +1627,8 @@ is_backwardation = (vix9d > vix3m) and (vix9d > 0)
 if is_backwardation:
     alerts["critical"].append(f"☢️ **SYSTEMIC PANIC (BACKWARDATION):** VIX9D ({vix9d:.2f}) has inverted above VIX3M ({vix3m:.2f}). The Volatility Curve is broken. **HALT ALL VRP SELLING IMMEDIATELY.** Prepare to monetize Tail Hedges.")
 
-# 10-Day Distribution Tracker (CDD) Alert
-dist_data_alert = get_distribution_tracker()
-spy_cdd_alert = dist_data_alert.get("SPY", (0, []))[0]
-rsp_cdd_alert = dist_data_alert.get("RSP", (0, []))[0]
-max_cdd = max(spy_cdd_alert, rsp_cdd_alert)
+# Live ADX for Iron Condor Guardrails
+spy_adx_live = get_spy_adx()
 
 # 10-Day Distribution Tracker (CDD) Alert
 dist_data_alert = get_distribution_tracker()
@@ -1519,7 +1645,7 @@ elif max_cdd == 3:
 if th_available >= 400.0:
     tranches_due = int(th_available // 400.0)
     if is_vix_crush:
-        alerts["opportunity"].append(f"🟢 **VIX CRUSH DETECTED (VIX: {vix_live:.2f}):** Tail insurance is cheap! You have **${th_available:,.0f}** available. Deploy **{tranches_due} tranche(s)** of 120-DTE Deep OTM S&P 500 Puts immediately.")
+        alerts["opportunity"].append(f"🟢 **VIX CRUSH DETECTED (IV Rank: {ivr_live:.0f}%):** Tail insurance is cheap! You have **${th_available:,.0f}** available. Deploy **{tranches_due} tranche(s)** of 120-DTE Deep OTM S&P 500 Puts immediately.")
     else:
         if tranches_due == 1:
             alerts["info"].append(f"🛡️ **Tail Hedge Deployment Due:** You have **${th_available:,.0f}** available in house money. Purchase **1 tranche** (~$400) of 120-DTE deep OTM S&P 500 Puts (Delta < 5).")
@@ -1546,14 +1672,14 @@ if not bench_df.empty:
     spy_50_alert = bench_df['sma_50'].iloc[-1]
     spy_200_alert = bench_df['sma_200'].iloc[-1]
     
-    if 15.0 <= vix_live and (spy_spot_alert > spy_50_alert or spy_spot_alert < spy_200_alert):
-        alerts["opportunity"].append(f"🟢 **RIPE: Bull Put Spreads.** VIX ({vix_live:.2f}) and Trend are optimal. Authorized to harvest VRP.")
-    if 15.0 <= vix_live <= 25.0 and spy_spot_alert < spy_50_alert:
-        alerts["opportunity"].append(f"🔴 **RIPE: Bear Call Spreads.** VIX ({vix_live:.2f}) and Trend are optimal. Authorized to harvest gravity premium.")
-    if 15.0 <= vix_live <= 22.0 and (abs(spy_spot_alert - spy_50_alert)/spy_50_alert < 0.02 or live_alpha_gear_alert == 3):
-        alerts["opportunity"].append(f"⚖️ **RIPE: Iron Condors.** VIX ({vix_live:.2f}) is optimal and SPY is rangebound. Authorized for delta-neutral efficiency.")
-    if vix_live < 15.0 and spy_spot_alert > spy_50_alert:
-        alerts["opportunity"].append(f"🐌 **RIPE: The Theta Machine (Calendars).** VIX ({vix_live:.2f}) is dead. Pivot to positive-Vega calendar spreads.")
+    if ivr_live >= 30.0 and (spy_spot_alert > spy_50_alert or spy_spot_alert < spy_200_alert):
+        alerts["opportunity"].append(f"🟢 **RIPE: Bull Put Spreads.** IV Rank ({ivr_live:.0f}%) and Trend are optimal. Authorized to harvest VRP.")
+    if 30.0 <= ivr_live <= 80.0 and spy_spot_alert < spy_50_alert:
+        alerts["opportunity"].append(f"🔴 **RIPE: Bear Call Spreads.** IV Rank ({ivr_live:.0f}%) and Trend are optimal. Authorized to harvest gravity premium.")
+    if 30.0 <= ivr_live <= 70.0 and (spy_adx_live > 0 and spy_adx_live < 20.0):
+        alerts["opportunity"].append(f"⚖️ **RIPE: Iron Condors.** IV Rank ({ivr_live:.0f}%) and ADX ({spy_adx_live:.1f}) are optimal. Authorized for delta-neutral efficiency.")
+    if ivr_live < 30.0 and spy_spot_alert > spy_50_alert:
+        alerts["opportunity"].append(f"🐌 **RIPE: The Theta Machine (Calendars).** IV Rank is low ({ivr_live:.0f}%). Pivot to positive-Vega calendar spreads.")
     
     # Self-contained macro dates to prevent top-down execution NameErrors
     macro_dates_alert = [
@@ -4047,6 +4173,78 @@ with st.expander("📊 Instrument Matrix & Tax Architecture", expanded=False):
 # --- SECTION 8: CAPITAL DEPLOYMENT & MARGIN TRACKER ---
 st.subheader("Options Center", anchor="sec6")
 
+# --- NEW: PRE-FLIGHT MATRIX (OPTIONS GOVERNOR) ---
+exp_matrix = st.expander("🛩️ View Pre-Flight Matrix & Options Governor", expanded=True)
+with exp_matrix:
+    if not bench_df.empty:
+        spy_spot_matrix = bench_df['SPY'].iloc[-1]
+        spy_50_matrix = bench_df['sma_50'].iloc[-1]
+        spy_200_matrix = bench_df['sma_200'].iloc[-1]
+        
+        # Calculate Ripe conditions safely
+        try:
+            spy_adx_matrix = get_spy_adx()
+        except:
+            spy_adx_matrix = 0.0
+            
+        cal_ripe = ivr_live < 30.0 and spy_spot_matrix > spy_50_matrix
+        ic_ripe = (30.0 <= ivr_live <= 70.0) and (spy_adx_matrix > 0 and spy_adx_matrix < 20.0)
+        bp_ripe = (ivr_live >= 30.0) and (spy_spot_matrix > spy_50_matrix or spy_spot_matrix < spy_200_matrix)
+        bc_ripe = (30.0 <= ivr_live <= 80.0) and (spy_spot_matrix < spy_50_matrix)
+        
+        cal_status = "🟢 RIPE" if cal_ripe else "🔴 BANNED"
+        ic_status = "🟢 RIPE" if ic_ripe else "🔴 BANNED"
+        bp_status = "🟢 RIPE" if bp_ripe else "🔴 BANNED"
+        bc_status = "🟢 RIPE" if bc_ripe else "🔴 BANNED"
+        th_status = "🟢 ACCUMULATE" if ivr_live < 30.0 else "🔵 HOLD"
+
+        cal_reason = "IVR < 30% and SPY > 50 SMA." if cal_ripe else f"IV Rank is {ivr_live:.0f}% or SPY < 50 SMA."
+        
+        if ic_ripe:
+            ic_reason = f"IV Rank ({ivr_live:.0f}%) and ADX ({spy_adx_matrix:.1f}) are optimal (Rangebound)."
+        else:
+            if ivr_live > 70.0 or ivr_live < 30.0:
+                ic_reason = f"IV Rank ({ivr_live:.0f}%) is out of 30-70% range."
+            else:
+                ic_reason = f"ADX is {spy_adx_matrix:.1f} (Must be < 20. Market is trending)."
+
+        if bp_ripe:
+            bp_reason = f"IV Rank >= 30% and SPY is structurally safe (> 50 or < 200 SMA)."
+        else:
+            if ivr_live < 30.0:
+                bp_reason = "IV Rank is < 30% (Premiums too cheap)."
+            else:
+                bp_reason = "SPY trend is unsafe for short puts."
+
+        if bc_ripe:
+            bc_reason = f"IV Rank 30-80% and SPY < 50 SMA."
+        else:
+            if spy_spot_matrix >= spy_50_matrix:
+                bc_reason = "SPY > 50 SMA (Banned during Bull Regimes)."
+            else:
+                bc_reason = f"IV Rank out of bounds."
+
+        th_reason = "VIX Crush (IVR < 30%). Insurance is cheap." if ivr_live < 30.0 else f"IV Rank > 30%. Do not overpay."
+
+        matrix_data = [
+            {"Strategy": "Theta Machine (Calendars)", "Description": "Positive-Theta/Vega spread. Profits from time decay and rising IV.", "Status": cal_status, "Reason": cal_reason},
+            {"Strategy": "VRP: Iron Condors", "Description": "Market-neutral strategy. Profits when asset remains rangebound.", "Status": ic_status, "Reason": ic_reason},
+            {"Strategy": "VRP: Bull Put Spreads", "Description": "Directional strategy. Profits if asset stays above short put strike.", "Status": bp_status, "Reason": bp_reason},
+            {"Strategy": "VRP: Bear Call Spreads", "Description": "Directional strategy. Profits if asset stays below short call strike.", "Status": bc_status, "Reason": bc_reason},
+            {"Strategy": "Deep OTM Tail Hedges", "Description": "Catastrophic insurance. Protects portfolio against black swan crashes.", "Status": th_status, "Reason": th_reason}
+        ]
+        
+        st.dataframe(
+            pd.DataFrame(matrix_data).style.apply(
+                lambda x: ['background-color: #dcfce7; color: #166534; font-weight: bold' if '🟢' in str(v) else 
+                           'background-color: #fee2e2; color: #991b1b; font-weight: bold' if '🔴' in str(v) else 
+                           'background-color: #dbeafe; color: #1e40af; font-weight: bold' if '🔵' in str(v) else '' for v in x],
+                subset=['Status']
+            ),
+            hide_index=True,
+            use_container_width=True
+        )
+
 exp_sec6 = st.expander("📊 View Capital Deployment & Margin Capacity Tracker", expanded=False)
 # Enlarging Global Gauges via Column Weights
 c_gb_cash, c_sa_cash, c_sc_cash, c_gb_marg, c_sa_marg, c_sc_marg = exp_sec6.columns([1.5, 1, 1, 1.5, 1, 1])
@@ -5191,8 +5389,8 @@ live_opt_dir_9a = chart_df['opt_dir'].iloc[-1] if not chart_df.empty else 'Bear'
 opt_color_9a = '#166534' if live_opt_dir_9a == 'Bull' else '#991b1b'
 opt_action_9a = "Authorized to sell Bull Put Spreads." if live_opt_dir_9a == 'Bull' else "Bull Puts BANNED. Authorized to sell Bear Calls."
 
-vix_color = "#dc2626" if vix_live < 15 else ("#d97706" if vix_live < 20 else "#16a34a")
-vix_warn = "🚨 COMPLACENT (Halt VRP / Buy Tails)" if vix_live < 15 else ("🟡 NORMAL (Standard VRP)" if vix_live < 20 else "🟢 ELEVATED (Prime VRP)")
+vix_color = "#dc2626" if ivr_live < 30.0 else ("#d97706" if ivr_live < 50.0 else "#16a34a")
+vix_warn = "🚨 COMPLACENT (Halt VRP / Buy Tails)" if ivr_live < 30.0 else ("🟡 NORMAL (Standard VRP)" if ivr_live < 50.0 else "🟢 ELEVATED (Prime VRP)")
 
 
 matrix_rows = ""
@@ -5257,11 +5455,16 @@ spy_200_9a = bench_df['sma_200'].iloc[-1] if not bench_df.empty else 500.0
 live_alpha_gear_9a = chart_df['alpha_gear'].iloc[-1] if not chart_df.empty else 0
 macro_soon_9a = any(ev['type'] == 'Macro' and 0 <= (ev['date'] - datetime.date.today()).days <= 1 for ev in calendar_events)
 
-bp_ripe = 15.0 <= vix_live and (spy_spot_9a > spy_50_9a or spy_spot_9a < spy_200_9a)
-bc_ripe = 15.0 <= vix_live <= 25.0 and spy_spot_9a < spy_50_9a
-ic_ripe = 15.0 <= vix_live <= 22.0 and (abs(spy_spot_9a - spy_50_9a)/spy_50_9a < 0.02 or live_alpha_gear_9a == 3)
-tm_ripe = vix_live < 15.0 and spy_spot_9a > spy_50_9a
-th_ripe = vix_live < 15.0
+try:
+    spy_adx_9a = get_spy_adx()
+except:
+    spy_adx_9a = 0.0
+
+bp_ripe = ivr_live >= 30.0 and (spy_spot_9a > spy_50_9a or spy_spot_9a < spy_200_9a)
+bc_ripe = 30.0 <= ivr_live <= 80.0 and spy_spot_9a < spy_50_9a
+ic_ripe = 30.0 <= ivr_live <= 70.0 and (spy_adx_9a > 0 and spy_adx_9a < 20.0)
+tm_ripe = ivr_live < 30.0 and spy_spot_9a > spy_50_9a
+th_ripe = ivr_live < 30.0
 
 def get_verdict_html(is_ripe, ripe_text="RIPE FOR DEPLOYMENT", banned_text="BANNED (Conditions Not Met)"):
     if is_ripe: return f"<br><br><span style='color:#16a34a;'><b>🟢 {ripe_text}</b></span>"
@@ -5314,18 +5517,18 @@ html_matrix = f"""
 </div>
 """
 
-with st.expander("⚙️ Click to expand the Master Options Matrix & CFO Briefing", expanded=False):
+with st.expander("⚙️ Master Options Matrix & CFO Briefing", expanded=False):
     st.markdown("<p style='color: #4b5563; font-size: 14px;'>A didactic Rosetta Stone for the Estate's Barbell mechanics. Outlines tax suitability, tactical execution, and live structural health for every active options class.</p>", unsafe_allow_html=True)
     st.markdown(f"""
     <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid {opt_color_9a}; padding: 12px 20px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <div>
-            <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Options Governor Pre-Flight Checklist</div>
+            <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Estate Margin & Macro Trend Overview</div>
             <div style="font-size: 15px; color: #0f172a;"><b>Structural Trend:</b> <span style="color: {opt_color_9a}; font-weight: bold;">{live_opt_dir_9a.upper()}</span> (SPY vs 50 SMA) — {opt_action_9a}</div>
             <div style="font-size: 15px; color: #0f172a; margin-top: 4px;"><b>Remaining Margin Capacity:</b> <span style="color: {'#dc2626' if remaining_margin < 10000 else '#16a34a'};">${remaining_margin:,.0f}</span> (Hard Cap: 20% NAV)</div>
         </div>
         <div style="text-align: right;">
-            <div style="font-size: 12px; color: #64748b; font-weight: bold; text-transform: uppercase;">Live VIX Regime</div>
-            <div style="font-size: 15px; color: {vix_color}; font-weight: bold;">{vix_live:.2f} — {vix_warn}</div>
+            <div style="font-size: 15px; font-weight: bold; margin-bottom: 2px;">LIVE IV RANK ({vix_live:.2f} Spot)</div>
+            <div style="font-size: 15px; color: {vix_color}; font-weight: bold;">{ivr_live:.0f}% — {vix_warn}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)

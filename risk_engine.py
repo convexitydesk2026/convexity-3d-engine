@@ -18,13 +18,30 @@ def get_decoupled_regimes(row):
     if pd.isna(rsp_50) or pd.isna(spy_50): 
         return 2, 'Bull'
         
-    # 1. ALPHA ENGINE (Stocks) - Pure Price Action & Breadth
-    if spy > spy_10 and rsp > rsp_10: alpha_gear = 5
-    elif spy > spy_20 and rsp > rsp_20: alpha_gear = 4
-    elif spy > spy_50 and rsp > rsp_50: alpha_gear = 3
-    elif spy > spy_50 and rsp < rsp_50: alpha_gear = 2
-    elif spy < spy_50 and rsp > rsp_50: alpha_gear = 1
-    else: alpha_gear = 0
+    # 1. ALPHA ENGINE (Stocks) - Institutional TSMOM Scoring
+    def get_trend_score(price, sma20, sma50):
+        score = 0
+        if price > sma50: score += 1      # Macro trend intact
+        if price > sma20: score += 1      # Medium trend intact
+        if sma20 > sma50: score += 1      # Positive Momentum (Golden cross)
+        return score
+        
+    spy_score = get_trend_score(spy, spy_20, spy_50)
+    rsp_score = get_trend_score(rsp, rsp_20, rsp_50)
+    
+    if spy_score == 3 and rsp_score == 3:
+        alpha_gear = 5  # Perfect Bull
+    elif spy_score >= 2 and rsp_score >= 2:
+        if spy_score == 2 and rsp_score == 2:
+            alpha_gear = 3  # Both in a Pullback Phase
+        else:
+            alpha_gear = 4  # Steady Bull (One index is perfect, one is pulling back)
+    elif spy_score >= 2 and rsp_score < 2:
+        alpha_gear = 2  # Breadth Divergence (Mega-caps strong, average stock weak)
+    elif spy_score < 2 and rsp_score >= 2:
+        alpha_gear = 1  # Cap-Weighted Breakdown (Mega-caps weak, average stock strong)
+    else:
+        alpha_gear = 0  # Bear Market (Both structurally weak)
         
     # 2. OPTIONS ENGINE (VRP) - Structural Gatekeeper
     opt_dir = 'Bull' if spy > spy_50 else 'Bear'
