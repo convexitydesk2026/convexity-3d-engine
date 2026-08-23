@@ -397,6 +397,7 @@ with st.sidebar:
     st.markdown("### 📌 Institutional Directory")
     st.markdown("""
     - [Master Dashboard](#top)
+    - [GOAT Alpha Engine](#goat_engine)
     - [Estate Aggregation](#master-agg)
     - [Calendars](#sec1b)
     - [Market Flow](#sec1c)
@@ -2387,6 +2388,72 @@ with st.expander("📊 Institutional Flow", expanded=False):
         st.info("Market Flow Report not found. Click '🌐 Generate Market Flow Report' in the ⚙️ Engine Control sidebar to create it.")
 
 
+
+
+# =============================================================================
+# --- GOAT ALPHA ENGINE ---
+# =============================================================================
+st.markdown('<br><br>', unsafe_allow_html=True)
+st.header('🔥 GOAT Alpha Engine', anchor='goat_engine')
+st.markdown('***Moving from complex hedging to pure, highly-focused Alpha generation.***')
+
+col_ep, col_goat, col_sq = st.columns([1,1,1])
+
+with col_ep:
+    st.subheader('⚡ EP Grader (Qullamaggie)')
+    st.info('Wait for MRNA-style setups. Do not force trades.')
+    with st.form('ep_grader_form', clear_on_submit=False):
+        ep_ticker = st.text_input('Ticker Symbol')
+        gap_ok = st.checkbox('Gap > 10% ?')
+        vol_ok = st.checkbox('Relative Volume > 5x ?')
+        cat_ok = st.checkbox('Generational Catalyst ? (e.g. MRNA DNA Cure)')
+        ep_submit = st.form_submit_button('Grade Setup')
+        if ep_submit:
+            if gap_ok and vol_ok and cat_ok and ep_ticker:
+                st.success(f'🟢 PERMISSION TO LAUNCH: {ep_ticker} is a pure EP. Execute on 5min/60min ORB.')
+            elif ep_ticker:
+                st.error(f'🔴 ABORT: {ep_ticker} does not meet Qullamaggie strict criteria. Do not force the trade.')
+
+with col_goat:
+    st.subheader('🍳 The GOAT Oven')
+    st.markdown('Track 13F Macro Bases (e.g., IREN, RIOT, BTDR, DLR) to 200 SMA.')
+    
+    import sqlite3
+    import pandas as pd
+    conn_goat = sqlite3.connect(DB_PATH)
+    c_goat = conn_goat.cursor()
+    c_goat.execute('CREATE TABLE IF NOT EXISTS goat_oven (ticker TEXT PRIMARY KEY, theme TEXT, target_sma REAL, notes TEXT)')
+    
+    df_goat = pd.read_sql_query('SELECT * FROM goat_oven', conn_goat)
+    if not df_goat.empty:
+        st.dataframe(df_goat, use_container_width=True, hide_index=True)
+    else:
+        st.write('Oven is empty. Add Druckenmiller macro themes.')
+    
+    with st.expander('➕ Add Ticker to Oven'):
+        with st.form('goat_add_form', clear_on_submit=True):
+            g_tick = st.text_input('Ticker').upper()
+            g_theme = st.text_input('Macro Theme (e.g. AI Power)')
+            g_sma = st.number_input('200 SMA Target Level', value=0.0)
+            g_notes = st.text_input('Notes')
+            if st.form_submit_button('Add to Oven'):
+                if g_tick:
+                    c_goat.execute('INSERT OR REPLACE INTO goat_oven (ticker, theme, target_sma, notes) VALUES (?, ?, ?, ?)', (g_tick, g_theme, g_sma, g_notes))
+                    conn_goat.commit()
+                    st.rerun()
+    conn_goat.close()
+
+with col_sq:
+    st.subheader('🐦 Squawk Box')
+    
+    
+    import streamlit.components.v1 as components
+    # PLACEHOLDER: Replace href with your actual X List URL
+    components.html("""
+        <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://twitter.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+""", height=600)
+    
+st.divider()
 
 # --- SECTION 3: CAPITAL BREAKDOWN ---
 st.subheader("Capital Breakdown", anchor="sec1")
