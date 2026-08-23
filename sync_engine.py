@@ -392,7 +392,7 @@ def sync_tws():
                 entry_price = COALESCE((SELECT avg_cost FROM daily_positions WHERE REPLACE(REPLACE(daily_positions.symbol, ' ', ''), '.', '') = REPLACE(REPLACE(alpha_campaigns.symbol, ' ', ''), '.', '') LIMIT 1), entry_price),
                 type = COALESCE(CASE WHEN (SELECT position FROM daily_positions WHERE REPLACE(REPLACE(daily_positions.symbol, ' ', ''), '.', '') = REPLACE(REPLACE(alpha_campaigns.symbol, ' ', ''), '.', '') LIMIT 1) > 0 THEN 'Long' ELSE 'Short' END, type),
                 initial_stop = CASE WHEN initial_stop = 0.0 OR initial_stop IS NULL THEN planned_stop ELSE initial_stop END
-            WHERE status IN ('Stalking 🔭', 'Waiting ⏳', 'Armed 🎯') 
+            WHERE status IN ('Stalking 🔭', 'Waiting ⏳', 'Armed 🎯', 'Pending Settlement ⏳', 'Pending Settlement') 
             AND (
                 REPLACE(REPLACE(symbol, ' ', ''), '.', '') IN (SELECT REPLACE(REPLACE(symbol, ' ', ''), '.', '') FROM daily_positions WHERE position != 0 AND sec_type IN ('STK', 'CFD'))
                 OR 

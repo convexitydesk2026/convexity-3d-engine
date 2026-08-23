@@ -3730,7 +3730,8 @@ if not df_open.empty:
     def commit_open_edits():
         state = st.session_state.get("open_camp_editor", {})
         edits = state.get("edited_rows", {})
-        if not edits: return
+        deletions = state.get("deleted_rows", [])
+        if not edits and not deletions: return
         
         conn_op = sqlite3.connect(DB_PATH, timeout=15)
         conn_op.execute("PRAGMA journal_mode=WAL;")
@@ -3750,6 +3751,10 @@ if not df_open.empty:
                 params.append(db_id)
                 query = f"UPDATE alpha_campaigns SET {', '.join(set_clauses)} WHERE id=?"
                 c_op.execute(query, tuple(params))
+                
+        for idx in deletions:
+            db_id = int(df_open.at[idx, 'id'])
+            c_op.execute("DELETE FROM alpha_campaigns WHERE id=?", (db_id,))
                 
         conn_op.commit()
         conn_op.close()
@@ -3786,6 +3791,7 @@ if not df_open.empty:
         },
         hide_index=True,
         width="stretch",
+        num_rows="dynamic",
         key="open_camp_editor",
         on_change=commit_open_edits
     )
@@ -3806,8 +3812,10 @@ if not df_closed.empty:
     st.session_state['df_closed_cache'] = df_closed.copy()
     
     def commit_closed_edits():
-        edits = st.session_state["closed_camp_editor"].get("edited_rows", {})
-        if not edits: return
+        state = st.session_state.get("closed_camp_editor", {})
+        edits = state.get("edited_rows", {})
+        deletions = state.get("deleted_rows", [])
+        if not edits and not deletions: return
         
         cached_df = st.session_state.get('df_closed_cache')
         if cached_df is None: return
@@ -3820,15 +3828,20 @@ if not df_closed.empty:
             idx = int(row_idx_str)
             db_id = int(cached_df.at[idx, 'id'])
             
-            c_cb.execute("SELECT tags, thesis FROM alpha_campaigns WHERE id=?", (db_id,))
-            row_data = c_cb.fetchone()
-            if not row_data: continue
+            set_clauses = []
+            params = []
+            for col, val in row_edits.items():
+                set_clauses.append(f"{col}=?")
+                params.append(val)
             
-            old_tags, old_thesis = row_data
-            new_tags = str(row_edits.get("tags", old_tags if old_tags else ""))
-            new_thesis = str(row_edits.get("thesis", old_thesis if old_thesis else ""))
-            
-            c_cb.execute("UPDATE alpha_campaigns SET tags=?, thesis=? WHERE id=?", (new_tags, new_thesis, db_id))
+            if set_clauses:
+                params.append(db_id)
+                query = f"UPDATE alpha_campaigns SET {', '.join(set_clauses)} WHERE id=?"
+                c_cb.execute(query, tuple(params))
+                
+        for idx in deletions:
+            db_id = int(cached_df.at[idx, 'id'])
+            c_cb.execute("DELETE FROM alpha_campaigns WHERE id=?", (db_id,))
         
         conn_cb.commit()
         conn_cb.close()
@@ -3853,14 +3866,21 @@ if not df_closed.empty:
         styled_closed, 
         hide_index=True, 
         width="stretch",
+        num_rows="dynamic",
         key="closed_camp_editor",
         on_change=commit_closed_edits,
         column_config={
             "id": None, # Hide the primary key from the UI
             "tags": st.column_config.TextColumn("tags (Editable)"),
-            "thesis": st.column_config.TextColumn("thesis (Editable)")
+            "thesis": st.column_config.TextColumn("thesis (Editable)"),
+            "days_active": st.column_config.NumberColumn("days_active (Editable)"),
+            "initial_stop": st.column_config.NumberColumn("initial_stop (Editable)", format="%.2f"),
+            "industry": st.column_config.TextColumn("industry (Editable)"),
+            "sector": st.column_config.TextColumn("sector (Editable)"),
+            "type": st.column_config.TextColumn("type (Editable)"),
+            "r_multiple": st.column_config.NumberColumn("r_multiple (Editable)", format="%.2f")
         },
-        disabled=["open_date", "close_date", "symbol", "type", "regime_in", "sector", "industry", "entry_price", "initial_stop", "days_active", "total_pnl", "r_multiple", "grade"]
+        disabled=["open_date", "close_date", "symbol", "regime_in", "entry_price", "total_pnl", "grade"]
     )
     
     # Exclude the internal 'id' column from the CSV export for a pristine spreadsheet    
