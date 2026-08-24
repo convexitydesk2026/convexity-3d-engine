@@ -42,15 +42,6 @@ logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="Master Dashboard", layout="wide")
 
-st.markdown("""
-    <style>
-        @import url('https://fonts.bunny.net/css?family=jetbrains-mono:400,700');
-        html, body, [class*="css"]  {
-            font-family: 'JetBrains Mono', monospace !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
 
 SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine.py")
 
@@ -2405,7 +2396,6 @@ with st.expander("📊 Institutional Flow", expanded=False):
 # =============================================================================
 st.markdown('<br><br>', unsafe_allow_html=True)
 st.header('🔥 GOAT Alpha Engine', anchor='goat_engine')
-st.markdown('***Moving from complex hedging to pure, highly-focused Alpha generation.***')
 
 with st.expander('🔥 GOAT Alpha Engine', expanded=False):
     col_ep, col_goat, col_sq = st.columns([1,1,1])
