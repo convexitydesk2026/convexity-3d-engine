@@ -42,6 +42,16 @@ logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="Master Dashboard", layout="wide")
 
+st.markdown("""
+    <style>
+        @import url('https://fonts.bunny.net/css?family=jetbrains-mono:400,700');
+        html, body, [class*="css"]  {
+            font-family: 'JetBrains Mono', monospace !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+
 SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine.py")
 
 # --- YFINANCE REDUNDANCY / FALLBACK HELPERS ---
@@ -2397,61 +2407,119 @@ st.markdown('<br><br>', unsafe_allow_html=True)
 st.header('🔥 GOAT Alpha Engine', anchor='goat_engine')
 st.markdown('***Moving from complex hedging to pure, highly-focused Alpha generation.***')
 
-col_ep, col_goat, col_sq = st.columns([1,1,1])
+with st.expander('🔥 GOAT Alpha Engine', expanded=False):
+    col_ep, col_goat, col_sq = st.columns([1,1,1])
 
-with col_ep:
-    st.subheader('⚡ EP Grader (Qullamaggie)')
-    st.info('Wait for MRNA-style setups. Do not force trades.')
-    with st.form('ep_grader_form', clear_on_submit=False):
-        ep_ticker = st.text_input('Ticker Symbol')
-        gap_ok = st.checkbox('Gap > 10% ?')
-        vol_ok = st.checkbox('Relative Volume > 5x ?')
-        cat_ok = st.checkbox('Generational Catalyst ? (e.g. MRNA DNA Cure)')
-        ep_submit = st.form_submit_button('Grade Setup')
-        if ep_submit:
-            if gap_ok and vol_ok and cat_ok and ep_ticker:
-                st.success(f'🟢 PERMISSION TO LAUNCH: {ep_ticker} is a pure EP. Execute on 5min/60min ORB.')
-            elif ep_ticker:
-                st.error(f'🔴 ABORT: {ep_ticker} does not meet Qullamaggie strict criteria. Do not force the trade.')
+    with col_ep:
+        st.subheader('⚡ EP Grader (Qullamaggie)')
+        st.info('Wait for MRNA-style setups. Do not force trades.')
+        
+        # EP Waiting Room Database connection
+        import sqlite3
+        import pandas as pd
+        conn_ep = sqlite3.connect(DB_PATH)
+        c_ep = conn_ep.cursor()
+        c_ep.execute('CREATE TABLE IF NOT EXISTS ep_waiting_room (ticker TEXT PRIMARY KEY, status TEXT)')
+        
+        # Migration: Add new columns safely
+        try:
+            c_ep.execute('ALTER TABLE ep_waiting_room ADD COLUMN orb_high REAL')
+            c_ep.execute('ALTER TABLE ep_waiting_room ADD COLUMN rvol_target REAL')
+            c_ep.execute('ALTER TABLE ep_waiting_room ADD COLUMN alert_sent INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        
+        with st.form('ep_grader_form', clear_on_submit=False):
+            ep_ticker = st.text_input('Ticker Symbol').upper()
+            gap_ok = st.checkbox('Gap > 10% ?')
+            vol_ok = st.checkbox('Relative Volume > 5x ?')
+            cat_ok = st.checkbox('Generational Catalyst ? (e.g. MRNA DNA Cure)')
+            
+            st.markdown('**Alert Engine Settings**')
+            col_inp1, col_inp2 = st.columns(2)
+            with col_inp1:
+                orb_high_val = st.number_input('ORB High Price', value=0.0)
+            with col_inp2:
+                rvol_target_val = st.number_input('RVol Target (%)', value=300.0)
+            
+            ep_submit = st.form_submit_button('Grade Setup')
+            if ep_submit:
+                if gap_ok and vol_ok and cat_ok and ep_ticker:
+                    st.success(f'🟢 PERMISSION TO LAUNCH: {ep_ticker} is a pure EP. Execute on 5min/60min ORB.')
+                    c_ep.execute('INSERT OR REPLACE INTO ep_waiting_room (ticker, status, orb_high, rvol_target, alert_sent) VALUES (?, ?, ?, ?, ?)', 
+                                 (ep_ticker, 'Waiting for ORB', orb_high_val, rvol_target_val, 0))
+                    conn_ep.commit()
+                elif ep_ticker:
+                    st.error(f'🔴 ABORT: {ep_ticker} does not meet Qullamaggie strict criteria. Do not force the trade.')
 
-with col_goat:
-    st.subheader('🍳 The GOAT Oven')
-    st.markdown('Track 13F Macro Bases (e.g., IREN, RIOT, BTDR, DLR) to 200 SMA.')
-    
-    import sqlite3
-    import pandas as pd
-    conn_goat = sqlite3.connect(DB_PATH)
-    c_goat = conn_goat.cursor()
-    c_goat.execute('CREATE TABLE IF NOT EXISTS goat_oven (ticker TEXT PRIMARY KEY, theme TEXT, target_sma REAL, notes TEXT)')
-    
-    df_goat = pd.read_sql_query('SELECT * FROM goat_oven', conn_goat)
-    if not df_goat.empty:
-        st.dataframe(df_goat, use_container_width=True, hide_index=True)
-    else:
-        st.write('Oven is empty. Add Druckenmiller macro themes.')
-    
-    with st.expander('➕ Add Ticker to Oven'):
-        with st.form('goat_add_form', clear_on_submit=True):
-            g_tick = st.text_input('Ticker').upper()
-            g_theme = st.text_input('Macro Theme (e.g. AI Power)')
-            g_sma = st.number_input('200 SMA Target Level', value=0.0)
-            g_notes = st.text_input('Notes')
-            if st.form_submit_button('Add to Oven'):
-                if g_tick:
-                    c_goat.execute('INSERT OR REPLACE INTO goat_oven (ticker, theme, target_sma, notes) VALUES (?, ?, ?, ?)', (g_tick, g_theme, g_sma, g_notes))
-                    conn_goat.commit()
-                    st.rerun()
-    conn_goat.close()
+        # Render Waiting Room using st.data_editor
+        df_ep = pd.read_sql_query('SELECT * FROM ep_waiting_room', conn_ep)
+        if not df_ep.empty:
+            st.markdown('**EP Waiting Room**')
+            edited_ep = st.data_editor(df_ep, use_container_width=True, hide_index=True, num_rows="dynamic", key="ep_editor")
+            
+            # Sync changes/deletions back to DB
+            if not edited_ep.equals(df_ep):
+                c_ep.execute('DELETE FROM ep_waiting_room')
+                for _, row in edited_ep.iterrows():
+                    c_ep.execute('INSERT INTO ep_waiting_room (ticker, status, orb_high, rvol_target, alert_sent) VALUES (?, ?, ?, ?, ?)', 
+                                 (row['ticker'], row['status'], row.get('orb_high', 0.0), row.get('rvol_target', 0.0), row.get('alert_sent', 0)))
+                conn_ep.commit()
+                st.rerun()
+        conn_ep.close()
 
-with col_sq:
-    st.subheader('🐦 Squawk Box')
-    
-    
-    import streamlit.components.v1 as components
-    # PLACEHOLDER: Replace href with your actual X List URL
-    components.html("""
-        <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://twitter.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
-""", height=600)
+    with col_goat:
+        st.subheader('🍳 The GOAT Oven')
+        st.markdown('Track 13F Macro Bases (e.g., IREN, RIOT, BTDR, DLR) to 200 SMA.')
+        
+        conn_goat = sqlite3.connect(DB_PATH)
+        c_goat = conn_goat.cursor()
+        c_goat.execute('CREATE TABLE IF NOT EXISTS goat_oven (ticker TEXT PRIMARY KEY, theme TEXT, target_sma REAL, notes TEXT)')
+        
+        # Migration: Add new column safely
+        try:
+            c_goat.execute('ALTER TABLE goat_oven ADD COLUMN alert_sent INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        
+        df_goat = pd.read_sql_query('SELECT * FROM goat_oven', conn_goat)
+        if not df_goat.empty:
+            edited_goat = st.data_editor(df_goat, use_container_width=True, hide_index=True, num_rows="dynamic", height=150, key="goat_editor")
+            
+            # Sync edits/deletes back to DB
+            if not edited_goat.equals(df_goat):
+                c_goat.execute('DELETE FROM goat_oven')
+                for _, row in edited_goat.iterrows():
+                    c_goat.execute('INSERT INTO goat_oven (ticker, theme, target_sma, notes, alert_sent) VALUES (?, ?, ?, ?, ?)', 
+                                   (row['ticker'], row['theme'], row['target_sma'], row['notes'], row.get('alert_sent', 0)))
+                conn_goat.commit()
+                st.rerun()
+        else:
+            st.write('Oven is empty. Add Druckenmiller macro themes.')
+        
+        with st.expander('➕ Add Ticker to Oven'):
+            with st.form('goat_add_form', clear_on_submit=True):
+                g_tick = st.text_input('Ticker').upper()
+                g_theme = st.text_input('Macro Theme (e.g. AI Power)')
+                g_sma = st.number_input('200 SMA Target Level', value=0.0)
+                g_notes = st.text_input('Notes')
+                if st.form_submit_button('Add to Oven'):
+                    if g_tick:
+                        c_goat.execute('INSERT OR REPLACE INTO goat_oven (ticker, theme, target_sma, notes, alert_sent) VALUES (?, ?, ?, ?, ?)', 
+                                       (g_tick, g_theme, g_sma, g_notes, 0))
+                        conn_goat.commit()
+                        st.rerun()
+        conn_goat.close()
+
+    with col_sq:
+        st.subheader('🐦 Squawk Box')
+        
+        
+        import streamlit.components.v1 as components
+        # PLACEHOLDER: Replace href with your actual X List URL
+        components.html("""
+            <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://twitter.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+    """, height=600)
     
 st.divider()
 

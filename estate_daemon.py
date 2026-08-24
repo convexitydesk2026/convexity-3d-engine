@@ -36,6 +36,14 @@ def run_script(script_name):
 def run_eod_cushion_check():
     run_script("EOD_Cushion_Check.py")
 
+def run_price_monitor_job():
+    """Runs the intraday price monitor between 9:30 AM and 4:00 PM EST."""
+    now = datetime.now(EST).time()
+    market_open = datetime.strptime("09:30", "%H:%M").time()
+    market_close = datetime.strptime("16:00", "%H:%M").time()
+    if market_open <= now <= market_close:
+        run_script("price_monitor_engine.py")
+
 def run_morning_publishing():
     """Executes the 7:00 AM ET morning publishing sequence."""
     def sequence():
@@ -103,6 +111,9 @@ def create_image():
 def setup_scheduler():
     """Initializes the APScheduler anchored to US/Eastern."""
     scheduler = BackgroundScheduler(timezone=EST)
+    
+    # Intraday Price Monitor (Mon-Fri, Every Minute)
+    scheduler.add_job(run_price_monitor_job, 'cron', day_of_week='mon-fri', hour='9-16', minute='*')
     
     # 7:00 AM ET: Morning Publishing Sequence (Mon-Fri)
     scheduler.add_job(run_morning_publishing, 'cron', day_of_week='mon-fri', hour=7, minute=0)
