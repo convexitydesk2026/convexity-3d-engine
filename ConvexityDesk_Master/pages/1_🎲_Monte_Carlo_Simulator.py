@@ -60,7 +60,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Convexity Desk")
-st.markdown("### Monte Carlo PnL Simulator")
+st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+st.markdown("##### Monte Carlo PnL Simulator")
 st.markdown("Stress test your edge across 10,000 reshuffled realities.")
 
 # 1. SIDEBAR PARAMETERS
