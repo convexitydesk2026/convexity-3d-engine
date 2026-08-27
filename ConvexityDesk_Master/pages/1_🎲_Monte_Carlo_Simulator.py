@@ -62,8 +62,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Convexity Desk")
-st.markdown("##### Monte Carlo PnL Simulator")
+st.markdown("##### 🎲 Monte Carlo PnL Simulator")
 st.markdown("Stress test your edge across 10,000 reshuffled realities.")
+
+st.info("💡 **Data Provenance:** This simulator dynamically draws its trade parameters (Win Rate, Average Win, Average Loss) directly from the positions you configure in the **Physical Equity Risk Ledger** module. Navigate there to edit the inputs!")
 
 # 1. SIDEBAR PARAMETERS
 with st.sidebar:
@@ -99,7 +101,7 @@ except Exception:
 
 daily_pnl_array = traj_df['daily_pnl'].values
 
-st.subheader("3. Monte Carlo Analysis")
+st.subheader("Monte Carlo Analysis")
 
 # Run the Monte Carlo on the flattened edited array
 cum_sim, max_dds, mc_avg_dd, mc_best_dd, mc_worst_dd, mc_avg_path = generate_mc_paths(daily_pnl_array)

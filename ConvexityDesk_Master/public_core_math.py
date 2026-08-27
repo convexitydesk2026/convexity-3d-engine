@@ -29,6 +29,7 @@ def render_global_sidebar():
     """Renders the global Alpha Risk Calculator & HWM Budget on the sidebar for all pages."""
     with st.sidebar:
         st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
+        st.caption("[📖 Read the mathematical methodology here](https://convexitydesk.com/)")
         st.markdown(
             "<div style='background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;'>"
             "<p style='font-size: 11px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>TIERED DRAWDOWN GOVERNOR</p>"
@@ -48,7 +49,7 @@ def render_global_sidebar():
             unsafe_allow_html=True
         )
         
-        with st.expander("Position Sizing Engine", expanded=True):
+        with st.expander("Position Sizing Engine", expanded=False):
             st.selectbox("Target Silo", ["Silo A (Core)", "Silo B (High Beta)", "Silo C (Mega-Cap)", "Silo D (Speculative)"])
             st.markdown("<p style='font-size: 12px; color: #64748b;'>Silo NAV: <b>$25,000</b><br>Uninvested Cash: <b>$10,000</b></p>", unsafe_allow_html=True)
             
