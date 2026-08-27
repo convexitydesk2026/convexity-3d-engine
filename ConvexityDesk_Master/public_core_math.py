@@ -9,7 +9,12 @@ import io
 # Suppress yfinance warnings
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
-def render_beta_warning_and_feedback():
+def render_page_footer(purpose_text=""):
+    st.divider()
+    if purpose_text:
+        st.markdown(f"**Module Purpose:** *{purpose_text}*")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
     st.warning("⚠️ **Beta Development Phase:** This platform is currently under active development. While you are welcome to explore the sandbox and interact with the modules, please note that results and simulations are not yet reliable. If you still see this header next week, it means we are continuing to polish the engine. In the meantime, feel free to tinker and use the feedback box below to report bugs!")
     with st.expander("📬 Beta Feedback / Bug Report", expanded=False):
         feedback = st.text_area("Tell us what's broken or what you'd like to see:", placeholder="E.g. The trajectory chart looks static...")
@@ -57,7 +62,7 @@ def init_global_state():
             {'Ticker': 'SH', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_100, 'Entry Price': 33.51, 'Shares': 746, 'Stop Loss': 30.0, 'Exit Date': d_50, 'Exit Price': 33.11, 'Strike': None, 'Expiry': ''},
             
             # Period 5 (d_50 to now): Very Defensive (Avg Gear ~1)
-            {'Ticker': 'V', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_50, 'Entry Price': 346.89, 'Shares': 72, 'Stop Loss': 330.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'V', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_50, 'Entry Price': 268.89, 'Shares': 93, 'Stop Loss': 255.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
             {'Ticker': 'DIS', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_50, 'Entry Price': 96.70, 'Shares': 259, 'Stop Loss': 85.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
             {'Ticker': 'IWM', 'Class': 'Option', 'Silo': 'C', 'Entry Date': d_50, 'Entry Price': 293.48, 'Shares': 85, 'Stop Loss': 280.00, 'Exit Date': None, 'Exit Price': None, 'Strike': 300, 'Expiry': (today + timedelta(days=30)).strftime('%Y-%m-%d')},
             {'Ticker': 'QQQ', 'Class': 'Option', 'Silo': 'D', 'Entry Date': d_50, 'Entry Price': 711.44, 'Shares': -35, 'Stop Loss': 730.00, 'Exit Date': None, 'Exit Price': None, 'Strike': 700, 'Expiry': (today + timedelta(days=15)).strftime('%Y-%m-%d')}
@@ -90,6 +95,7 @@ def render_master_ledger_control_panel(expanded=False):
             st.rerun()
             
         st.markdown("---")
+        st.info("⚠️ **Data Privacy Notice:** We do not store your data on our server. If you close this session, your edits will disappear. Please download your updated sandbox data before leaving, and re-upload it when you return.")
         
         col1, col2 = st.columns(2)
         with col1:

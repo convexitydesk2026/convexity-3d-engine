@@ -100,12 +100,11 @@ from pathlib import Path
 from scipy.interpolate import griddata
 import time
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import init_global_state, render_master_ledger_control_panel, render_beta_warning_and_feedback
+from public_core_math import init_global_state, render_master_ledger_control_panel, render_page_footer
 
 # Initialize Global State & Render UI Panel
 init_global_state()
 render_master_ledger_control_panel()
-render_beta_warning_and_feedback()
 
 # Filter Master Ledger for active options
 master_df = st.session_state.master_ledger
@@ -261,7 +260,7 @@ with tab1:
         *   **🔵 HOLD:** You should hold existing positions but do not open new ones. This usually triggers when implied volatility is too low (premiums are cheap) or the market trend is too dangerous to fade.
         *   **🔴 BANNED (AVOID):** The mathematical probability of loss is extremely high. (e.g., Selling Bear Calls during a raging bull market where SPY is above its 50-day moving average).
         """)
-        st.page_link("pages/6_🛩️_Pre_Flight_Matrix.py", label="View live market diagnostics on the Pre-Flight Matrix", icon="🛩️")
+        st.page_link("pages/6_🛩️_Options_Pre_Flight_Matrix.py", label="View live market diagnostics on the Pre-Flight Matrix", icon="🛩️")
     
     st.markdown("---")
     st.markdown("### 3D Volatility Surface Stress Tester")
@@ -656,3 +655,5 @@ with tab2:
 
     st.markdown("---")
     st.markdown("<div style='text-align: center; color: #64748b; font-size: 12px;'><b>Academic Foundation:</b> The quantitative edge demonstrated above is rooted in peer-reviewed financial science. For a deep dive into the mechanics of the VRP, read AQR Capital Management's seminal paper: <a href='https://www.aqr.com/-/media/AQR/Documents/White-Papers/Understanding-the-Volatility-Risk-Premium.pdf' target='_blank'>Understanding the Volatility Risk Premium</a>.</div>", unsafe_allow_html=True)
+
+render_page_footer("The 3D Options Topography Engine empowers option sellers to visualize complex non-linear risks. By interacting with the Volatility Surface, traders can map Gamma cliffs and Theta glide paths before deploying capital into credit spreads or iron condors.")

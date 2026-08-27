@@ -4,6 +4,10 @@ import numpy as np
 import yfinance as yf
 import datetime
 import logging
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from public_core_math import render_page_footer
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
@@ -368,3 +372,5 @@ full_html_document = f'''<!DOCTYPE html>
 '''
 
 st.components.v1.html(full_html_document, height=1000, scrolling=True)
+
+render_page_footer("The Market Flow Matrix monitors institutional fund flows across highly capitalized core indices, giving you a real-time 'heat map' of where major capital is rotating. This allows you to position your portfolio defensively or aggressively in tandem with the smart money.")

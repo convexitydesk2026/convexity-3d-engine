@@ -1,5 +1,5 @@
 import streamlit as st
-from public_core_math import render_beta_warning_and_feedback
+from public_core_math import render_page_footer
 
 st.set_page_config(page_title="Convexity Desk | Quant Engine", layout="wide", initial_sidebar_state="expanded")
 
@@ -77,11 +77,15 @@ st.markdown("""
     
     <div class="hero-banner">
         <div class="hero-title">Convexity Desk</div>
-        <div class="hero-subtitle">Mechanical Risk Management & Institutional Quantitative Research</div>
+        <div class="hero-subtitle">The Institutional Quant Engine for Retail Desks.</div>
+        <div style="margin-top: 15px; color: #60a5fa; font-weight: 500; font-size: 1.05rem;">
+            Institutional swing-trade attribution and mechanical risk management.
+        </div>
+        <div style="margin-top: 5px; color: #94a3b8; font-weight: 400; font-size: 0.95rem;">
+            100% Local. Zero API links. Your broker data never leaves your desk.
+        </div>
     </div>
 """, unsafe_allow_html=True)
-
-render_beta_warning_and_feedback()
 
 st.markdown("### 🎛️ Active Modules")
 st.markdown("<br>", unsafe_allow_html=True)
@@ -112,9 +116,9 @@ with col3:
 
 with col4:
     with st.container(border=True):
-        st.markdown("#### 🛩️ Pre-Flight Matrix")
+        st.markdown("#### 🛩️ Options Pre-Flight Matrix")
         st.markdown("<div class='card-desc'>Strict mechanical checklist to guarantee pristine trade execution. Mitigate emotional bias by running trades through the pre-flight quantitative filter.</div>", unsafe_allow_html=True)
-        st.page_link("pages/6_🛩️_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
+        st.page_link("pages/6_🛩️_Options_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
 
 st.markdown("<br>", unsafe_allow_html=True)
 col5, col6 = st.columns(2)
@@ -145,3 +149,5 @@ with st.sidebar:
     st.divider()
     st.markdown("### 🌐 Main Site")
     st.markdown('<a href="https://convexitydesk.com" target="_blank" style="text-decoration:none;"><button style="width:100%; padding:8px; border-radius:8px; background-color:#1e293b; color:white; border:1px solid #334155; cursor:pointer;">Return to convexitydesk.com</button></a>', unsafe_allow_html=True)
+
+render_page_footer("The Convexity Desk serves as your master control panel. From here, you can launch various quantitative risk management and journaling modules designed to evaluate portfolio attribution strictly from a mathematical, risk-adjusted framework.")

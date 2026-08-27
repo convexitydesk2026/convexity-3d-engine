@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from public_core_math import render_beta_warning_and_feedback
+from public_core_math import render_page_footer
 import numpy as np
 import datetime
 
@@ -27,7 +27,6 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-render_beta_warning_and_feedback()
 
 st.title("Options Governor & Pre-Flight Matrix")
 st.markdown("This module polls live market data to mechanically enforce risk parameters across all options strategies.")
@@ -135,3 +134,5 @@ try:
     
 except Exception as e:
     st.error(f"Failed to fetch live market data from Yahoo Finance: {e}")
+
+render_page_footer("The Options Pre-Flight Matrix acts as a mandatory quantitative checklist before deploying capital into derivative trades. It prevents emotional execution by demanding that every trade align with the prevailing market regime and mechanical probability distribution.")

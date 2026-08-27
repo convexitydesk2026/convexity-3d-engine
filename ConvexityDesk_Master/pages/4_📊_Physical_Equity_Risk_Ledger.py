@@ -34,13 +34,12 @@ st.markdown("Track absolute notional risk, cost basis, and trailing stop values 
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import init_global_state, render_master_ledger_control_panel, render_beta_warning_and_feedback
+from public_core_math import init_global_state, render_master_ledger_control_panel, render_page_footer
 import yfinance as yf
 
 # Initialize Global State & Render UI Panel
 init_global_state()
 render_master_ledger_control_panel()
-render_beta_warning_and_feedback()
 
 # Filter Master Ledger for active physical equities (no exit date/price)
 master_df = st.session_state.master_ledger
@@ -256,3 +255,5 @@ with expander:
     }).apply(style_alpha_row, axis=1), hide_index=True, use_container_width=True)
 
 
+
+render_page_footer("The Physical Equity Risk Ledger visualizes your exact absolute notional risk in the market at any given time. This strictly mathematical layout ensures you are never exposed to catastrophic ruin due to an out-of-control, over-leveraged position.")

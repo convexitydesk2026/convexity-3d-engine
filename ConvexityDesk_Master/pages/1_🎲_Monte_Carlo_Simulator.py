@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import random
 from datetime import datetime, date
-from public_core_math import generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, render_master_ledger_control_panel, compute_daily_trajectory, render_beta_warning_and_feedback
+from public_core_math import generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, render_master_ledger_control_panel, compute_daily_trajectory, render_page_footer
 
 st.set_page_config(page_title="Monte Carlo Simulator", layout="wide")
 
@@ -60,7 +60,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Convexity Desk")
-render_beta_warning_and_feedback()
 st.markdown("##### Monte Carlo PnL Simulator")
 st.markdown("Stress test your edge across 10,000 reshuffled realities.")
 
@@ -155,13 +154,13 @@ mc_fig.add_trace(go.Scatter(y=orig_cum, name='Original Realized History', mode='
 # SPY Overlay (Normalized to Start Capital + scaled to PnL axis)
 if np.sum(spy_closes) > 0:
     spy_returns = np.diff(spy_closes) / spy_closes[:-1]
-    spy_returns = np.insert(spy_returns, 0, 0) # Pad to 252 days
+    spy_returns = np.insert(spy_returns, 0, 0) # Pad to match array start
     spy_dollar_pnl = np.insert(np.cumsum(spy_returns * start_capital), 0, 0)
     mc_fig.add_trace(go.Scatter(y=spy_dollar_pnl, name='S&P 500 (SPY)', mode='lines', line=dict(color='orange', width=4.5)))
-    mc_fig.add_annotation(x=252, y=spy_dollar_pnl[-1], text=f"SPY: ${spy_dollar_pnl[-1]:,.0f}<br>Bal: ${(start_capital + spy_dollar_pnl[-1]):,.0f}", showarrow=False, xanchor='left', bgcolor='orange', font=dict(color='black', size=11))
+    mc_fig.add_annotation(x=num_days_in_grid-1, y=spy_dollar_pnl[-1], text=f"SPY: ${spy_dollar_pnl[-1]:,.0f}<br>Bal: ${(start_capital + spy_dollar_pnl[-1]):,.0f}", showarrow=False, xanchor='left', bgcolor='orange', font=dict(color='black', size=11))
 
 
-last_x = 252
+last_x = num_days_in_grid - 1
 mc_fig.add_annotation(x=last_x, y=cum_sim[best_idx][-1], text=f"Best: ${cum_sim[best_idx][-1]:,.0f}<br>Bal: ${(start_capital + cum_sim[best_idx][-1]):,.0f}", showarrow=False, xanchor='left', bgcolor='#166534', font=dict(color='white', size=11))
 mc_fig.add_annotation(x=last_x, y=cum_sim[worst_idx][-1], text=f"Worst: ${cum_sim[worst_idx][-1]:,.0f}<br>Bal: ${(start_capital + cum_sim[worst_idx][-1]):,.0f}", showarrow=False, xanchor='left', bgcolor='#991b1b', font=dict(color='white', size=11))
 mc_fig.add_annotation(x=last_x, y=mc_avg_path[-1], text=f"Expected: ${mc_avg_path[-1]:,.0f}<br>Bal: ${(start_capital + mc_avg_path[-1]):,.0f}", showarrow=False, xanchor='left', bgcolor='blue', font=dict(color='white', size=11))
@@ -201,3 +200,5 @@ with col_metrics_box:
         The <i>Best</i> and <i>Worst</i> traces represent the extreme 99.99th and 0.01st percentile limits of purely reshuffled luck given your exact edge. Because your <i>Original Realized History</i> is anchored near the <i>Statistically Expected Mean</i>, it confirms a statistically significant and highly robust edge, rather than an accidental streak of luck.
     </div>
     """.replace('\n', ''), unsafe_allow_html=True)
+
+render_page_footer("The Monte Carlo Simulator bootstraps thousands of possible alternate reality equity curves based on your realized trade history. This allows you to mathematically verify whether your system possesses a genuine statistical edge, or if recent performance was merely a byproduct of luck and volatility.")

@@ -35,12 +35,11 @@ st.markdown("Replicate and analyze institutional equity curve trajectories.")
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import init_global_state, render_master_ledger_control_panel, compute_daily_trajectory, render_beta_warning_and_feedback
+from public_core_math import compute_daily_trajectory, init_global_state, render_master_ledger_control_panel, render_page_footer
 
 # Initialize Global State & Render UI Panel
 init_global_state()
 render_master_ledger_control_panel(expanded=True)
-render_beta_warning_and_feedback()
 
 master_df = st.session_state.master_ledger
 equity_df = master_df[master_df['Class'] == 'Equity'].copy()
@@ -146,3 +145,5 @@ fig_pnl.update_layout(
 st.plotly_chart(fig_pnl, use_container_width=True)
 
 
+
+render_page_footer("The Daily PnL Trajectory engine overlays your realized PnL curve on top of the Alpha Engine's regime shifts. It exposes exactly how your portfolio scales (or fails) in distinct market environments.")
