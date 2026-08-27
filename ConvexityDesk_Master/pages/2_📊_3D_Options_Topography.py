@@ -100,18 +100,18 @@ from pathlib import Path
 from scipy.interpolate import griddata
 import time
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import init_global_state, render_master_ledger_control_panel, render_page_footer
+from public_core_math import render_global_sidebar, init_global_state, render_page_footer
+render_global_sidebar()
 
-# Initialize Global State & Render UI Panel
+# Initialize Global State
 init_global_state()
-render_master_ledger_control_panel()
 
 # Filter Master Ledger for active options
 master_df = st.session_state.master_ledger
 options_df = master_df[(master_df['Class'] == 'Option') & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
 
 if options_df.empty:
-    st.warning("⚠️ No active options positions detected in your Master Ledger. The 3D Engine is currently in standby. To explore this tool's capabilities, please add options trades to your CSV, or clear your upload from the sidebar to reload the full Sandbox Dummy Portfolio.")
+    st.warning("⚠️ No active options positions detected in the Sandbox. The 3D Engine is currently in standby. To explore this tool's capabilities, please add dummy options trades to the grid in the Educational Risk Ledger Sandbox.")
     st.stop()
 
 # ==========================================
@@ -204,23 +204,35 @@ with tab1:
     st.markdown("### 🟢 Active Options Performance Ledger")
     
     @st.cache_data
-    def load_dummy_options_ledger(spot_p):
-        data = [
-            {'Strategy': 'VRP: Bull Put Spread', 'Ticker': 'SPY', 'DTE': 35.0, 'Contracts': 10.0, 'Short Put': round(spot_p*0.95), 'Long Put': round(spot_p*0.95)-25, 'Short Call': 0.0, 'Long Call': 0.0, 'Status': '🟢 RIPE', 'Open PnL': 150.00},
-            {'Strategy': 'VRP: Iron Condor', 'Ticker': 'SPY', 'DTE': 35.0, 'Contracts': 5.0, 'Short Put': round(spot_p*0.93), 'Long Put': round(spot_p*0.93)-25, 'Short Call': round(spot_p*1.07), 'Long Call': round(spot_p*1.07)+25, 'Status': '🟢 RIPE', 'Open PnL': -45.00},
-            {'Strategy': 'Deep OTM Tail Hedge (Long Put)', 'Ticker': 'SPY', 'DTE': 120.0, 'Contracts': 20.0, 'Short Put': 0.0, 'Long Put': round(spot_p*0.80), 'Short Call': 0.0, 'Long Call': 0.0, 'Status': '🔵 HOLD', 'Open PnL': -125.50},
-        ]
+    def load_dummy_options_ledger(spot_p, _master_df):
+        opts = _master_df[_master_df['Class'] == 'Option'].copy()
+        data = []
+        for _, row in opts.iterrows():
+            try:
+                expiry = pd.to_datetime(row['Expiry'])
+                dte = max(0.0, float((expiry - pd.Timestamp.now()).days))
+            except:
+                dte = 30.0
+                
+            data.append({
+                'Strategy': str(row['Strategy']) if 'Strategy' in row and pd.notna(row['Strategy']) else 'VRP: Bull Put Spread',
+                'Ticker': str(row['Ticker']),
+                'DTE': dte,
+                'Contracts': float(row['Shares']) if pd.notna(row['Shares']) else 10.0,
+                'Short Put': float(row['Short Put']) if 'Short Put' in row and pd.notna(row['Short Put']) else 0.0,
+                'Long Put': float(row['Long Put']) if 'Long Put' in row and pd.notna(row['Long Put']) else 0.0,
+                'Short Call': float(row['Short Call']) if 'Short Call' in row and pd.notna(row['Short Call']) else 0.0,
+                'Long Call': float(row['Long Call']) if 'Long Call' in row and pd.notna(row['Long Call']) else 0.0,
+                'Status': '🟢 RIPE',
+                'Open PnL': (float(row['Exit Price']) if pd.notna(row['Exit Price']) else 0.0) - float(row['Entry Price']) * (float(row['Shares']) if pd.notna(row['Shares']) else 10.0)
+            })
+        if not data:
+            data.append({'Strategy': 'VRP: Bull Put Spread', 'Ticker': 'SPY', 'DTE': 35.0, 'Contracts': 10.0, 'Short Put': round(spot_p*0.95), 'Long Put': round(spot_p*0.95)-25, 'Short Call': 0.0, 'Long Call': 0.0, 'Status': '🟢 RIPE', 'Open PnL': 150.00})
         return pd.DataFrame(data)
         
-    df_opts = load_dummy_options_ledger(st.session_state.trade_params['spot'])
+    df_opts = load_dummy_options_ledger(st.session_state.trade_params['spot'], st.session_state.master_ledger)
     
-    st.markdown("To interact with the engine, you can **click on any row** in the active ledger, **manually edit** the table cells, upload a custom CSV portfolio, or configure arbitrary structures in the **Trade Parameters** sidebar.")
-    uploaded_opts = st.file_uploader("Upload Active Options CSV", type=['csv'], key="opts_up")
-    if uploaded_opts is not None:
-        try:
-            df_opts = pd.read_csv(uploaded_opts)
-        except Exception as e:
-            st.error(f"Error parsing CSV: {e}")
+    st.markdown("To interact with the engine, you can **click on any row** in the active ledger, **manually edit** the table cells, or configure arbitrary structures in the **Trade Parameters** sidebar.")
             
     try:
         # Use on_select to capture user clicks and drive the 3D engine

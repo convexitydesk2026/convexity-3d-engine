@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 import datetime
 
 st.set_page_config(page_title="Physical Equity Risk Ledger | Convexity Desk", layout="wide")
-
 st.markdown("""
     <style>
         .mobile-blocker { display: none; }
@@ -28,19 +27,37 @@ st.markdown("""
 
 
 
-st.title("Physical Equity Risk Ledger")
-st.markdown("Track absolute notional risk, cost basis, and trailing stop values across all physical equity positions.")
+st.title("📊 Educational Risk Ledger Sandbox")
+st.markdown("Track absolute notional risk across all dummy physical equity and options positions.")
 
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import init_global_state, render_master_ledger_control_panel, render_page_footer
+from public_core_math import render_global_sidebar, init_global_state, render_page_footer
+render_global_sidebar()
 import yfinance as yf
 
-# Initialize Global State & Render UI Panel
+# Initialize Global State
 init_global_state()
-render_master_ledger_control_panel()
 
+st.info("💡 **Educational Sandbox:** Edit the table below to simulate portfolio entries. Changes update the global state for the Monte Carlo simulator. Data is temporary and vanishes on refresh.")
+
+# Educational Sandbox Grid
+edited_df = st.data_editor(
+    st.session_state.master_ledger, 
+    num_rows="dynamic", 
+    use_container_width=True,
+    column_config={
+        "Class": st.column_config.SelectboxColumn("Class", options=["Equity", "Option"], required=True),
+        "Silo": st.column_config.SelectboxColumn("Silo", options=["A", "B", "C", "D"], required=True),
+        "Entry Date": st.column_config.DateColumn("Entry Date", format="YYYY-MM-DD"),
+        "Exit Date": st.column_config.DateColumn("Exit Date", format="YYYY-MM-DD")
+    }
+)
+
+if not edited_df.equals(st.session_state.master_ledger):
+    st.session_state.master_ledger = edited_df
+    st.rerun()
 # Filter Master Ledger for active physical equities (no exit date/price)
 master_df = st.session_state.master_ledger
 equity_df = master_df[(master_df['Class'] == 'Equity') & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()

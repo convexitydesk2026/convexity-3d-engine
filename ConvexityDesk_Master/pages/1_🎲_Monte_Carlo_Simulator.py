@@ -4,9 +4,11 @@ import numpy as np
 import plotly.graph_objects as go
 import random
 from datetime import datetime, date
-from public_core_math import generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, render_master_ledger_control_panel, compute_daily_trajectory, render_page_footer
+from public_core_math import render_global_sidebar, generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, compute_daily_trajectory, render_page_footer
 
 st.set_page_config(page_title="Monte Carlo Simulator", layout="wide")
+
+render_global_sidebar()
 
 st.markdown("""
     <style>
@@ -66,8 +68,6 @@ st.markdown("Stress test your edge across 10,000 reshuffled realities.")
 # 1. SIDEBAR PARAMETERS
 with st.sidebar:
     st.header("1. Scenario Constraints")
-    start_capital = st.number_input("Starting Capital ($)", value=100000, step=10000)
-    
     st.markdown("---")
     last_trading_day = st.date_input("Last Trading Day", value=date.today())
     
@@ -76,8 +76,6 @@ with st.sidebar:
     st.caption("For educational and demonstrational purposes only. Not financial advice. The simulations rely on static probabilities and do not reflect real market conditions or slippage.")
 
 init_global_state()
-render_master_ledger_control_panel(expanded=False)
-
 master_df = st.session_state.master_ledger
 equity_df = master_df[master_df['Class'] == 'Equity'].copy()
 if equity_df.empty:
@@ -88,6 +86,16 @@ traj_df = compute_daily_trajectory(equity_df)
 if traj_df.empty:
     st.error("Error generating trajectory from Master Ledger.")
     st.stop()
+
+# Calculate actual starting capital based on the dummy portfolio's initial deployed cash
+try:
+    equity_df['Entry Price'] = pd.to_numeric(equity_df['Entry Price'], errors='coerce')
+    equity_df['Shares'] = pd.to_numeric(equity_df['Shares'], errors='coerce')
+    start_capital = float((equity_df['Entry Price'] * equity_df['Shares'].abs()).sum())
+    if start_capital == 0:
+        start_capital = 100000.0
+except Exception:
+    start_capital = 100000.0
 
 daily_pnl_array = traj_df['daily_pnl'].values
 

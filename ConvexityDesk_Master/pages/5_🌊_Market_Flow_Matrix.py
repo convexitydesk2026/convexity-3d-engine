@@ -7,11 +7,13 @@ import logging
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import render_page_footer
+from public_core_math import render_global_sidebar, render_page_footer
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="Market Flow Matrix | Convexity Desk", layout="wide")
+
+render_global_sidebar()
 
 st.markdown("""
     <style>

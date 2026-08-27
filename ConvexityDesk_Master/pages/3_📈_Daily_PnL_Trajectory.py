@@ -3,10 +3,17 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import yfinance as yf
-import datetime
+from datetime import date, timedelta
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 
 st.set_page_config(page_title="Daily PnL Trajectory | Convexity Desk", layout="wide")
+from public_core_math import render_global_sidebar, compute_daily_trajectory, render_page_footer, init_global_state
+render_global_sidebar()
+init_global_state()
 
+# MOBILE BLOCKER
 st.markdown("""
     <style>
         .mobile-blocker { display: none; }
@@ -27,22 +34,46 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-
-
-st.title("Daily PnL Trajectory")
 st.markdown("Replicate and analyze institutional equity curve trajectories.")
+data_source = st.radio("Select Data Source", ["GOAT Model Portfolio", "Educational Sandbox"], horizontal=True, label_visibility="collapsed")
 
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import compute_daily_trajectory, init_global_state, render_master_ledger_control_panel, render_page_footer
+if data_source == "GOAT Model Portfolio":
+    st.title("🏆 GOAT Model Portfolio Trajectory")
+else:
+    st.title("📊 Educational Sandbox Trajectory")
 
-# Initialize Global State & Render UI Panel
-init_global_state()
-render_master_ledger_control_panel(expanded=True)
+@st.cache_data(ttl=86400)
+def get_historical_close(ticker, target_date):
+    try:
+        data = yf.download(ticker, start=target_date.strftime('%Y-%m-%d'), end=(target_date + timedelta(days=5)).strftime('%Y-%m-%d'), progress=False)
+        if not data.empty:
+            if isinstance(data.columns, pd.MultiIndex):
+                return float(data['Close'][ticker].iloc[0])
+            return float(data['Close'].iloc[0])
+    except:
+        pass
+    return 100.0
 
-master_df = st.session_state.master_ledger
-equity_df = master_df[master_df['Class'] == 'Equity'].copy()
+today = date.today()
+d_250 = today - timedelta(days=250)
+d_200 = today - timedelta(days=200)
+d_150 = today - timedelta(days=150)
+d_100 = today - timedelta(days=100)
+d_50 = today - timedelta(days=50)
+
+goat_data = [
+    {'Ticker': 'NVDA', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_250, 'Entry Price': get_historical_close('NVDA', d_250), 'Shares': 200, 'Stop Loss': 130.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+    {'Ticker': 'PLTR', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_200, 'Entry Price': get_historical_close('PLTR', d_200), 'Shares': 300, 'Stop Loss': 100.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+    {'Ticker': 'META', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_150, 'Entry Price': get_historical_close('META', d_150), 'Shares': 50, 'Stop Loss': 480.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+    {'Ticker': 'HOOD', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_100, 'Entry Price': get_historical_close('HOOD', d_100), 'Shares': 1000, 'Stop Loss': 18.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+    {'Ticker': 'V', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_50, 'Entry Price': get_historical_close('V', d_50), 'Shares': 100, 'Stop Loss': 255.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''}
+]
+
+if data_source == "GOAT Model Portfolio":
+    equity_df = pd.DataFrame(goat_data)
+else:
+    master_df = st.session_state.master_ledger
+    equity_df = master_df[master_df['Class'] == 'Equity'].copy()
 
 if equity_df.empty:
     st.warning("⚠️ No physical equity positions found in Master Ledger. The PnL Trajectory is in Standby Mode.")
@@ -53,20 +84,20 @@ if df.empty:
     st.error("Error generating trajectory. Ensure valid stock tickers.")
     st.stop()
 
-# Calculate scaling for USD lines (Assume starting NAV of $100k)
 initial_nav = 100000
 df['spy_usd_cum'] = df['spy_cum'] * initial_nav
 df['qqq_usd_cum'] = df['qqq_cum'] * initial_nav
 df['rsp_usd_cum'] = df['rsp_cum'] * initial_nav
 df['cum_return'] = df['cum_pnl'] / initial_nav
 
-st.markdown("### Portfolio vs Benchmarks (1-Year Trajectory)")
-privacy_mode = False
+if data_source == "Educational Sandbox":
+    privacy_mode = st.toggle("Enable Privacy Mode (Hide Absolute Values)", value=False)
+else:
+    privacy_mode = False
 
 fig_pnl = go.Figure()
 
 if not privacy_mode:
-    # Add Silo Bars dynamically based on presence of data
     if (df['silo_d_pnl'] != 0).any():
         fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_d_pnl'], name='Silo D', marker_color='#c084fc'))
     if (df['silo_a_pnl'] != 0).any():
@@ -76,23 +107,19 @@ if not privacy_mode:
     if (df['silo_c_pnl'] != 0).any():
         fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_c_pnl'], name='Silo C', marker_color='#4ade80'))
     
-    # Add Cumulative Lines
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_pnl'], name='Portfolio (Cum PnL USD)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_usd_cum'], name='SPY (Cum PnL USD)', mode='lines', line=dict(color='#3b82f6', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['qqq_usd_cum'], name='QQQ (Cum PnL USD)', mode='lines', line=dict(color='#dc2626', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_usd_cum'], name='RSP (Cum PnL USD)', mode='lines', line=dict(color='#16a34a', width=3), yaxis='y2'))
 else:
-    # Pure Percentages in Privacy Mode
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_cum']*100, name='SPY (Cum Return %)', mode='lines', line=dict(color='#3b82f6', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['qqq_cum']*100, name='QQQ (Cum Return %)', mode='lines', line=dict(color='#dc2626', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_cum']*100, name='RSP (Cum Return %)', mode='lines', line=dict(color='#16a34a', width=3), yaxis='y2'))
+    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_return']*100, name='Portfolio (Cum Return %)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
 
-# Formatting for Alpha Gear and Options Engine
 df['alpha_bg'] = df['alpha_gear'].map({5: '#14532d', 4: '#22c55e', 3: '#84cc16', 2: '#eab308', 1: '#f97316', 0: '#991b1b'})
 df['alpha_txt'] = df['alpha_gear'].map({5: 'white', 4: 'black', 3: 'black', 2: 'black', 1: 'black', 0: 'white'})
-df['opt_bg'] = df['opt_dir'].map({'Bull': '#166534', 'Bear': '#991b1b'})
 
-# Alpha Engine (Squares)
 fig_pnl.add_trace(go.Scatter(
     x=df['date'], y=[0]*len(df), mode='markers+text', 
     marker=dict(color=df['alpha_bg'], symbol='square', size=16, line=dict(width=1, color='black')),
@@ -101,16 +128,6 @@ fig_pnl.add_trace(go.Scatter(
     customdata=df['alpha_gear'], 
     name='Alpha Engine', showlegend=False, yaxis='y3'
 ))
-
-# Options Engine (Circles) - Hidden in Privacy Mode
-if not privacy_mode:
-    fig_pnl.add_trace(go.Scatter(
-        x=df['date'], y=[-1]*len(df), mode='markers', 
-        marker=dict(color=df['opt_bg'], symbol='circle', size=12, line=dict(width=1, color='black')),
-        hovertemplate="<b>Date:</b> %{x|%Y-%m-%d}<br><b>Options Trend:</b> %{customdata}<extra></extra>",
-        customdata=df['opt_dir'], 
-        name='Options Engine', showlegend=False, yaxis='y3'
-    ))
 
 last_dt = df['date'].iloc[-1]
 
@@ -129,6 +146,17 @@ if not privacy_mode:
     fig_pnl.add_annotation(x=last_dt, y=spy_val, text=f"{spy_pct:.1f}%<br>${spy_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#3b82f6', font=dict(color='white', size=11))
     fig_pnl.add_annotation(x=last_dt, y=qqq_val, text=f"{qqq_pct:.1f}%<br>${qqq_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#dc2626', font=dict(color='white', size=11))
     fig_pnl.add_annotation(x=last_dt, y=rsp_val, text=f"{rsp_pct:.1f}%<br>${rsp_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#16a34a', font=dict(color='white', size=11))
+else:
+    est_pct = df['cum_return'].iloc[-1] * 100
+    spy_pct = df['spy_cum'].iloc[-1] * 100
+    qqq_pct = df['qqq_cum'].iloc[-1] * 100
+    rsp_pct = df['rsp_cum'].iloc[-1] * 100
+
+    fig_pnl.add_annotation(x=last_dt, y=est_pct, text=f"{est_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='black', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=spy_pct, text=f"{spy_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='#3b82f6', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=qqq_pct, text=f"{qqq_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='#dc2626', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=rsp_pct, text=f"{rsp_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='#16a34a', font=dict(color='white', size=11))
+
 
 fig_pnl.update_layout(
     height=600,
@@ -146,8 +174,7 @@ st.plotly_chart(fig_pnl, use_container_width=True)
 
 st.markdown("""
 <div style='font-size: 12px; color: #64748b; margin-top: -15px; margin-bottom: 20px; text-align: center;'>
-    <b>Legend:</b> The numbered squares represent the <b>Alpha Engine (Regime Gear 0-5)</b>, determining aggressive vs. defensive posture. 
-    The colored circles underneath represent the <b>Options Engine</b> trend (Green = Bullish, Red = Bearish Volatility Structure).
+    <b>Legend:</b> The numbered squares represent the <b>Alpha Engine (Regime Gear 0-5)</b>, determining aggressive vs. defensive posture. <a href="https://convexitydesk.com/the-mechanical-engine-decoding-regime-math-gear-0-5/" target="_blank" style="color: #60a5fa; text-decoration: none;">Want to know more about Regime math?</a>
 </div>
 """, unsafe_allow_html=True)
 

@@ -5,6 +5,7 @@ from datetime import timedelta, date
 import logging
 import streamlit as st
 import io
+from pathlib import Path
 
 # Suppress yfinance warnings
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -24,100 +25,74 @@ def render_page_footer(purpose_text=""):
             else:
                 st.error("Please enter some feedback before submitting.")
 
+def render_global_sidebar():
+    """Renders the global Alpha Risk Calculator & HWM Budget on the sidebar for all pages."""
+    with st.sidebar:
+        st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
+        st.markdown(
+            "<div style='background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;'>"
+            "<p style='font-size: 11px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>TIERED DRAWDOWN GOVERNOR</p>"
+            "<h2 style='color: #16a34a; margin-top: 0px; margin-bottom: 5px;'>Tier 1 (Peak) (1.0x)</h2>"
+            "<p style='font-size: 12px; color: #475569; margin-bottom: 15px;'>HWM: $1,050,000 | Current Drawdown: -0.00%</p>"
+            "<div style='display: flex; justify-content: space-between;'>"
+            "<div>"
+            "<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>MAX CAPACITY</p>"
+            "<p style='font-size: 16px; font-weight: bold; color: #3b82f6; margin-top: 0px;'>$20,000</p>"
+            "</div>"
+            "<div style='text-align: right;'>"
+            "<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>REMAINING</p>"
+            "<p style='font-size: 16px; font-weight: bold; color: #16a34a; margin-top: 0px;'>$20,000</p>"
+            "</div>"
+            "</div>"
+            "</div>", 
+            unsafe_allow_html=True
+        )
+        
+        with st.expander("Position Sizing Engine", expanded=True):
+            st.selectbox("Target Silo", ["Silo A (Core)", "Silo B (High Beta)", "Silo C (Mega-Cap)", "Silo D (Speculative)"])
+            st.markdown("<p style='font-size: 12px; color: #64748b;'>Silo NAV: <b>$25,000</b><br>Uninvested Cash: <b>$10,000</b></p>", unsafe_allow_html=True)
+            
+            st.checkbox("Flag as IPO / Unproven Asset")
+            
+            st.radio("Entry Type", ["Initial Entry", "Scale-In (Pyramid)"], horizontal=True, label_visibility="collapsed")
+            
+            st.selectbox("Trade Horizon (ATR Sizing)", ["Short-Term (Daily)", "Medium-Term (Weekly)", "Long-Term (Monthly)"])
+            st.text_input("Ticker Symbol")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.number_input("Risk %", value=0.200, step=0.01)
+            with col2:
+                st.selectbox("Direction", ["Long", "Short"])
+                
+            st.selectbox("Asset Currency", ["USD"])
+            st.number_input("Entry Price (USD)", value=0.00, step=1.0)
+            st.number_input("Stop Loss Limit (USD)", value=0.00, step=1.0)
+            
+            if st.button("Calculate Optimal Size", use_container_width=True):
+                st.info("Optimal Size: 100 Shares ($2,000 Total Capital at Risk)")
+
 def init_global_state():
     """Initializes the Master Ledger in st.session_state if it doesn't exist."""
     if 'master_ledger' not in st.session_state:
-        # Create Dummy Data
-        today = date.today()
-        d_250 = today - timedelta(days=250)
-        d_200 = today - timedelta(days=200)
-        d_150 = today - timedelta(days=150)
-        d_100 = today - timedelta(days=100)
-        d_50 = today - timedelta(days=50)
-        d_10 = today - timedelta(days=10)
-        
-        data = [
-            # Period 1 (d_250 to d_200): Aggressive (Avg Gear ~4)
-            {'Ticker': 'SPY', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_250, 'Entry Price': 676.99, 'Shares': 37, 'Stop Loss': 650.0, 'Exit Date': d_200, 'Exit Price': 690.28, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'AMZN', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_250, 'Entry Price': 227.35, 'Shares': 110, 'Stop Loss': 210.0, 'Exit Date': d_200, 'Exit Price': 208.72, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'NVDA', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_250, 'Entry Price': 180.77, 'Shares': 138, 'Stop Loss': 160.0, 'Exit Date': d_200, 'Exit Price': 189.81, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'GLD', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_250, 'Entry Price': 399.02, 'Shares': 63, 'Stop Loss': 380.0, 'Exit Date': d_200, 'Exit Price': 467.03, 'Strike': None, 'Expiry': ''},
-            
-            # Period 2 (d_200 to d_150): Defensive (Avg Gear ~2)
-            {'Ticker': 'QQQ', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_200, 'Entry Price': 612.87, 'Shares': 41, 'Stop Loss': 590.0, 'Exit Date': d_150, 'Exit Price': 557.67, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'GOOGL', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_200, 'Entry Price': 323.90, 'Shares': 77, 'Stop Loss': 300.0, 'Exit Date': d_150, 'Exit Price': 273.34, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'AMD', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_200, 'Entry Price': 216.00, 'Shares': 116, 'Stop Loss': 200.0, 'Exit Date': d_150, 'Exit Price': 196.04, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'TLT', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_200, 'Entry Price': 85.56, 'Shares': 292, 'Stop Loss': 80.0, 'Exit Date': d_150, 'Exit Price': 85.12, 'Strike': None, 'Expiry': ''},
-            
-            # Period 3 (d_150 to d_100): Balanced (Avg Gear ~3)
-            {'Ticker': 'AAPL', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_150, 'Entry Price': 246.19, 'Shares': 102, 'Stop Loss': 230.0, 'Exit Date': d_100, 'Exit Price': 298.71, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'META', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_150, 'Entry Price': 535.88, 'Shares': 47, 'Stop Loss': 500.0, 'Exit Date': d_100, 'Exit Price': 602.05, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'TSLA', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_150, 'Entry Price': 355.28, 'Shares': 70, 'Stop Loss': 330.0, 'Exit Date': d_100, 'Exit Price': 404.11, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'XLU', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_150, 'Entry Price': 45.63, 'Shares': 548, 'Stop Loss': 40.0, 'Exit Date': d_100, 'Exit Price': 44.06, 'Strike': None, 'Expiry': ''},
-            
-            # Period 4 (d_100 to d_50): Very Aggressive (Avg Gear ~5)
-            {'Ticker': 'MSFT', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_100, 'Entry Price': 415.74, 'Shares': 60, 'Stop Loss': 390.0, 'Exit Date': d_50, 'Exit Price': 382.62, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'NFLX', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_100, 'Entry Price': 89.33, 'Shares': 280, 'Stop Loss': 75.0, 'Exit Date': d_50, 'Exit Price': 75.59, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'PLTR', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_100, 'Entry Price': 135.26, 'Shares': 185, 'Stop Loss': 120.0, 'Exit Date': d_50, 'Exit Price': 132.22, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'SH', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_100, 'Entry Price': 33.51, 'Shares': 746, 'Stop Loss': 30.0, 'Exit Date': d_50, 'Exit Price': 33.11, 'Strike': None, 'Expiry': ''},
-            
-            # Period 5 (d_50 to now): Very Defensive (Avg Gear ~1)
-            {'Ticker': 'V', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_50, 'Entry Price': 268.89, 'Shares': 93, 'Stop Loss': 255.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'DIS', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_50, 'Entry Price': 96.70, 'Shares': 259, 'Stop Loss': 85.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
-            {'Ticker': 'IWM', 'Class': 'Option', 'Silo': 'C', 'Entry Date': d_50, 'Entry Price': 293.48, 'Shares': 85, 'Stop Loss': 280.00, 'Exit Date': None, 'Exit Price': None, 'Strike': 300, 'Expiry': (today + timedelta(days=30)).strftime('%Y-%m-%d')},
-            {'Ticker': 'QQQ', 'Class': 'Option', 'Silo': 'D', 'Entry Date': d_50, 'Entry Price': 711.44, 'Shares': -35, 'Stop Loss': 730.00, 'Exit Date': None, 'Exit Price': None, 'Strike': 700, 'Expiry': (today + timedelta(days=15)).strftime('%Y-%m-%d')}
-        ]
-        
-        df = pd.DataFrame(data)
-        st.session_state.master_ledger = df
+        # Load Dummy Data from CSV to allow admin to curate the sandbox
+        csv_path = Path(__file__).parent / "dummy_portfolio.csv"
+        try:
+            df = pd.read_csv(csv_path, parse_dates=['Entry Date', 'Exit Date', 'Expiry'])
+            # Ensure proper types
+            for col in ['Entry Date', 'Exit Date', 'Expiry']:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+            st.session_state.master_ledger = df
+        except Exception as e:
+            st.error(f"Error loading dummy_portfolio.csv: {e}")
+            st.session_state.master_ledger = pd.DataFrame()
 
-def render_master_ledger_control_panel(expanded=False):
-    """Renders the universal expander for manipulating the Master Ledger."""
-    with st.expander("🛠️ Edit Realized History (Master Ledger)", expanded=expanded):
-        st.markdown("Edit the table below directly, or upload your own CSV. Changes instantly propagate across all modules.")
-        
-        # 1. Editable DataFrame
-        edited_df = st.data_editor(
-            st.session_state.master_ledger, 
-            num_rows="dynamic", 
-            use_container_width=True,
-            column_config={
-                "Class": st.column_config.SelectboxColumn("Class", options=["Equity", "Option"], required=True),
-                "Silo": st.column_config.SelectboxColumn("Silo", options=["A", "B", "C", "D"], required=True),
-                "Entry Date": st.column_config.DateColumn("Entry Date", format="YYYY-MM-DD"),
-                "Exit Date": st.column_config.DateColumn("Exit Date", format="YYYY-MM-DD")
-            }
-        )
-        
-        # Update Session State if user edited the table
-        if not edited_df.equals(st.session_state.master_ledger):
-            st.session_state.master_ledger = edited_df
-            st.rerun()
-            
-        st.markdown("---")
-        st.info("⚠️ **Data Privacy Notice:** We do not store your data on our server. If you close this session, your edits will disappear. Please download your updated sandbox data before leaving, and re-upload it when you return.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            # CSV Download
-            csv_data = st.session_state.master_ledger.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Sandbox Template (CSV)",
-                data=csv_data,
-                file_name="convexity_master_ledger_template.csv",
-                mime="text/csv"
-            )
-        with col2:
-            # CSV Upload
-            uploaded_file = st.file_uploader("Upload your Master Ledger (CSV)", type=["csv"], label_visibility="collapsed")
-            if uploaded_file is not None:
-                try:
-                    new_df = pd.read_csv(uploaded_file)
-                    st.session_state.master_ledger = new_df
-                    st.success("Master Ledger successfully overwritten!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error parsing CSV: {e}")
+def verify_license_key():
+    """
+    Simulates checking a remote licensing server (e.g., Stripe/Auth).
+    Returns True if valid. During Beta, always returns True.
+    """
+    return True
 
 def generate_synthetic_pnl(win_rate, avg_win, avg_loss, num_trades):
     """
@@ -344,15 +319,22 @@ def compute_daily_trajectory(df_input):
                 spot = entry_price
                 if ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
                     spot = float(hist_data[ticker].iloc[i])
-                pnl = shares * (spot - entry_price)
+                    
+                # Fix Day-1 Anomaly: Anchor entry_price to the actual spot price on the entry date
+                if d == entry_dt and ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
+                    df_input.at[_, 'Real_Entry_Price'] = spot
+                    
+                actual_entry = df_input.at[_, 'Real_Entry_Price'] if 'Real_Entry_Price' in df_input.columns and pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
                 
+                pnl = shares * (spot - actual_entry)
             else:
                 # Trade is Closed: Calculate Realized PnL based on Exit Price
+                actual_entry = df_input.at[_, 'Real_Entry_Price'] if 'Real_Entry_Price' in df_input.columns and pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
                 if pd.notna(row['Exit Price']) and row['Exit Price'] != '':
                     exit_price = float(row['Exit Price'])
                 else:
-                    exit_price = entry_price # Fallback to 0 PnL if no exit price provided
-                pnl = shares * (exit_price - entry_price)
+                    exit_price = actual_entry # Fallback to 0 PnL if no exit price provided
+                pnl = shares * (exit_price - actual_entry)
                 
             if row['Silo'] == 'A': a_val += pnl
             elif row['Silo'] == 'B': b_val += pnl

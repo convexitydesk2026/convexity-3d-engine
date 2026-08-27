@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from public_core_math import render_page_footer
+from public_core_math import render_global_sidebar, render_page_footer
 import numpy as np
 import datetime
 
 st.set_page_config(page_title="Pre-Flight Matrix | Convexity Desk", layout="wide")
+
+render_global_sidebar()
 
 st.markdown("""
     <style>

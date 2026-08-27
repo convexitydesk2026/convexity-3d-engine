@@ -1,7 +1,9 @@
 import streamlit as st
-from public_core_math import render_page_footer
+from public_core_math import render_page_footer, render_global_sidebar
 
 st.set_page_config(page_title="Convexity Desk | Quant Engine", layout="wide", initial_sidebar_state="expanded")
+
+render_global_sidebar()
 
 # GLOBAL MOBILE BLOCKER & CUSTOM CSS
 st.markdown("""
@@ -79,10 +81,10 @@ st.markdown("""
         <div class="hero-title">Convexity Desk</div>
         <div class="hero-subtitle">The Institutional Quant Engine for Retail Desks.</div>
         <div style="margin-top: 15px; color: #60a5fa; font-weight: 500; font-size: 1.05rem;">
-            Institutional swing-trade attribution and mechanical risk management.
+            Institutional swing-trade signals and mechanical risk management.
         </div>
         <div style="margin-top: 5px; color: #94a3b8; font-weight: 400; font-size: 0.95rem;">
-            100% Local. Zero API links. Your broker data never leaves your desk.
+            Zero-Retention Cloud Engine. Absolute privacy. We don't want your data. We provide the edge.
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -125,15 +127,45 @@ col5, col6 = st.columns(2)
 
 with col5:
     with st.container(border=True):
-        st.markdown("#### 📈 Daily PnL Trajectory")
-        st.markdown("<div class='card-desc'>Track the daily evolution of your portfolio's PnL against the S&P 500 benchmark. Identify drawdowns and volatility drag in real-time.</div>", unsafe_allow_html=True)
+        st.markdown("#### 📈 GOAT Model Portfolio Trajectory")
+        st.markdown("<div class='card-desc'>Track the hypothetical historical performance of the 🔥 GOAT Alpha Engine signals against major benchmarks to verify our quantitative edge.</div>", unsafe_allow_html=True)
         st.page_link("pages/3_📈_Daily_PnL_Trajectory.py", label="Launch Trajectory", icon="🚀")
 
 with col6:
     with st.container(border=True):
-        st.markdown("#### 📊 Physical Equity Risk Ledger")
-        st.markdown("<div class='card-desc'>Comprehensive mechanical ledger for physical equity positions. Automatically calculate risk-adjusted position sizing and stop-loss levels.</div>", unsafe_allow_html=True)
+        st.markdown("#### 📊 Educational Risk Ledger Sandbox")
+        st.markdown("<div class='card-desc'>An ephemeral sandbox ledger. Manually edit the dummy data grid to see how position sizing affects the Monte Carlo and risk models.</div>", unsafe_allow_html=True)
         st.page_link("pages/4_📊_Physical_Equity_Risk_Ledger.py", label="Launch Ledger", icon="🚀")
+
+st.markdown("<br>", unsafe_allow_html=True)
+col7, col8 = st.columns(2)
+
+with col7:
+    with st.container(border=True):
+        st.markdown("#### 🔥 GOAT Alpha Engine")
+        st.markdown("<div class='card-desc'>Premium signal generation. Track Qullamaggie Episodic Pivots, 13F institutional accumulation bases, and live Squawk Box macro alerts.</div>", unsafe_allow_html=True)
+        st.page_link("pages/7_🔥_GOAT_Alpha_Engine.py", label="Launch Alpha Engine", icon="🚀")
+
+with col8:
+    with st.container(border=True):
+        st.markdown("#### 💼 Multi-Account Aggregation")
+        st.markdown("<div class='card-desc'>Consolidate disparate accounts (401k, Swing, Options) into a singular risk profile. Monitor global beta and true portfolio correlation.</div>", unsafe_allow_html=True)
+        st.page_link("pages/8_💼_Multi_Account_Aggregation.py", label="Launch Aggregation", icon="🚀")
+
+st.divider()
+
+st.markdown("### 📬 Beta Program Feedback")
+st.markdown("Help us shape Convexity 2.0. Tell us what features you want, what bugs you've found, or how we can improve the mechanical engine.")
+with st.container(border=True):
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        landing_feedback = st.text_area("Your Feedback:", placeholder="E.g. I would love to see a backtester module...", label_visibility="collapsed")
+    with col2:
+        if st.button("Submit Feedback", type="primary", use_container_width=True):
+            if landing_feedback:
+                st.success("✅ Feedback securely transmitted to the dev team. Thank you!")
+            else:
+                st.error("Please enter feedback first.")
 
 st.divider()
 
