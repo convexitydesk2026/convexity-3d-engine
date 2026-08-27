@@ -74,27 +74,27 @@ def plot_mini_chart(color):
     return fig
 
 with col1:
-    st.markdown("#### Account A (Swing Equity)")
-    st.caption("Bal: $27,538.62")
-    st.plotly_chart(plot_mini_chart("#c084fc"), use_container_width=True)
-    st.markdown("IRR: 38.06% <br> Sharpe: 1.02 <br> Max DD: -12.42%", unsafe_allow_html=True)
+    st.markdown("#### Account A (Core 401K)")
+    st.caption("Bal: $500,000.00")
+    st.plotly_chart(plot_mini_chart("#86efac"), use_container_width=True)
+    st.markdown("IRR: 18.73% <br> Sharpe: 1.02 <br> Max DD: -12.42%", unsafe_allow_html=True)
 
 with col2:
-    st.markdown("#### Account B (Options 3D)")
-    st.caption("Bal: $578,943.67")
+    st.markdown("#### Account B (High Beta)")
+    st.caption("Bal: $250,000.00")
     st.plotly_chart(plot_mini_chart("#93c5fd"), use_container_width=True)
-    st.markdown("IRR: 12.14% <br> Sharpe: 1.20 <br> Max DD: -11.23%", unsafe_allow_html=True)
+    st.markdown("IRR: 24.14% <br> Sharpe: 1.20 <br> Max DD: -18.23%", unsafe_allow_html=True)
 
 with col3:
-    st.markdown("#### Account C (401k Core)")
-    st.caption("Bal: $366,467.25")
-    st.plotly_chart(plot_mini_chart("#86efac"), use_container_width=True)
-    st.markdown("IRR: 18.73% <br> Sharpe: 0.95 <br> Max DD: -12.74%", unsafe_allow_html=True)
+    st.markdown("#### Account C (Speculative)")
+    st.caption("Bal: $100,000.00")
+    st.plotly_chart(plot_mini_chart("#c084fc"), use_container_width=True)
+    st.markdown("IRR: 52.06% <br> Sharpe: 0.85 <br> Max DD: -32.74%", unsafe_allow_html=True)
 
 with col4:
-    st.markdown("#### Account D (Cash/Dry Powder)")
-    st.caption("Bal: $0.00")
-    st.markdown("<br><br><br><br><br><br>", unsafe_allow_html=True)
-    st.markdown("IRR: 0.00% <br> Sharpe: 0.00 <br> Max DD: 0.00%", unsafe_allow_html=True)
+    st.markdown("#### Account D (Options / VRP)")
+    st.caption("Bal: $150,000.00")
+    st.plotly_chart(plot_mini_chart("#fcd34d"), use_container_width=True)
+    st.markdown("IRR: 14.50% <br> Sharpe: 1.95 <br> Max DD: -4.10%", unsafe_allow_html=True)
 
 render_page_footer("The Multi-Account Aggregation panel mathematically blends multiple distinct accounts into a singular risk profile. It allows traders to monitor their global beta and true portfolio correlation to the S&P 500 across disparate strategies.")

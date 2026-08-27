@@ -313,18 +313,20 @@ def compute_daily_trajectory(df_input):
             ticker = row['Ticker']
             shares = float(row['Shares'])
             entry_price = float(row['Entry Price'])
-            
             if entry_dt <= d <= exit_dt:
                 # Trade is Open: Calculate Unrealized PnL based on Spot Price
                 spot = entry_price
                 if ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
                     spot = float(hist_data[ticker].iloc[i])
                     
-                # Fix Day-1 Anomaly: Anchor entry_price to the actual spot price on the entry date
-                if d == entry_dt and ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
+                # Fix Day-1 Anomaly: Anchor entry_price to the actual spot price on the first active trading day
+                if 'Real_Entry_Price' not in df_input.columns:
+                    df_input['Real_Entry_Price'] = np.nan
+                    
+                if d >= entry_dt and pd.isna(df_input.at[_, 'Real_Entry_Price']) and ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
                     df_input.at[_, 'Real_Entry_Price'] = spot
                     
-                actual_entry = df_input.at[_, 'Real_Entry_Price'] if 'Real_Entry_Price' in df_input.columns and pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
+                actual_entry = df_input.at[_, 'Real_Entry_Price'] if pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
                 
                 pnl = shares * (spot - actual_entry)
             else:

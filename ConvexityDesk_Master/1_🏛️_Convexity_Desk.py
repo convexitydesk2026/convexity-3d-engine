@@ -154,21 +154,6 @@ with col8:
 
 st.divider()
 
-st.markdown("### 📬 Beta Program Feedback")
-st.markdown("Help us shape Convexity 2.0. Tell us what features you want, what bugs you've found, or how we can improve the mechanical engine.")
-with st.container(border=True):
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        landing_feedback = st.text_area("Your Feedback:", placeholder="E.g. I would love to see a backtester module...", label_visibility="collapsed")
-    with col2:
-        if st.button("Submit Feedback", type="primary", use_container_width=True):
-            if landing_feedback:
-                st.success("✅ Feedback securely transmitted to the dev team. Thank you!")
-            else:
-                st.error("Please enter feedback first.")
-
-st.divider()
-
 st.markdown("""
 <div style='text-align: center; color: #94a3b8; font-size: 0.85rem;'>
     <i>"Do not guess. Do not hope. Measure, quantify, and execute."</i><br><br>

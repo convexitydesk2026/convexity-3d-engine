@@ -134,7 +134,7 @@ if 'trade_params' not in st.session_state:
 # 4. SIDEBAR
 # ==========================================
 with st.sidebar:
-    st.markdown("### ⚙️ Trade Parameters")
+    st.markdown("### ⚙️ Options Trade Parameters")
     
     strats = ["VRP: Bull Put Spread", "VRP: Bear Call Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"]
     current_strat = st.session_state.trade_params.get('strategy', "VRP: Bull Put Spread")
@@ -202,7 +202,7 @@ with tab1:
     """, unsafe_allow_html=True)
     
     st.markdown("### 🟢 Active Options Performance Ledger")
-    
+    st.markdown("<div style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>To interact with the 3D engine below, expand the <b>⚙️ Options Trade Parameters</b> sidebar to configure arbitrary structures. This ledger solely displays your current open derivatives from the Sandbox.</div>", unsafe_allow_html=True)
     @st.cache_data
     def load_dummy_options_ledger(spot_p, _master_df):
         opts = _master_df[_master_df['Class'] == 'Option'].copy()
@@ -232,8 +232,6 @@ with tab1:
         
     df_opts = load_dummy_options_ledger(st.session_state.trade_params['spot'], st.session_state.master_ledger)
     
-    st.markdown("To interact with the engine, you can **click on any row** in the active ledger, **manually edit** the table cells, or configure arbitrary structures in the **Trade Parameters** sidebar.")
-            
     try:
         # Use on_select to capture user clicks and drive the 3D engine
         event = st.data_editor(df_opts.style.format({
