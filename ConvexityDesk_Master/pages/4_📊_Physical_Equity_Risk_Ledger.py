@@ -37,7 +37,7 @@ def get_dummy_alpha_data():
     data = [
         {
             'Ticker': 'GLD',
-            'Global Estate %': 2.55,
+            'Global Portfolio %': 2.55,
             'Earnings': 'N/A',
             'Shares': 58,
             'Spot Price': 427.34,
@@ -56,7 +56,7 @@ def get_dummy_alpha_data():
         },
         {
             'Ticker': 'RCUS',
-            'Global Estate %': 1.69,
+            'Global Portfolio %': 1.69,
             'Earnings': 'Oct 27 (63d)',
             'Shares': 520,
             'Spot Price': 31.57,
@@ -75,7 +75,7 @@ def get_dummy_alpha_data():
         },
         {
             'Ticker': 'BMNR',
-            'Global Estate %': 1.28,
+            'Global Portfolio %': 1.28,
             'Earnings': 'Jul 15 (-41d)',
             'Shares': 508,
             'Spot Price': 24.58,
@@ -185,7 +185,7 @@ with expander:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    tick_texts = df_alpha.apply(lambda r: f"{r['Ticker']}<br><span style='font-size:10px;color:gray;'>{r['Global Estate %']:.2f}%</span>", axis=1)
+    tick_texts = df_alpha.apply(lambda r: f"{r['Ticker']}<br><span style='font-size:10px;color:gray;'>{r['Global Portfolio %']:.2f}%</span>", axis=1)
     fig_alpha.update_xaxes(tickmode='array', tickvals=x_pos, ticktext=tick_texts)
 
     with c_chart:
@@ -198,7 +198,7 @@ with expander:
     
     st.markdown(f"""
     <div style='display:flex; justify-content:space-between; background-color:#f8fafc; padding:15px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:15px;'>
-        <div><span style='color:#475569; font-size:14px;'>Global Total Open Risk (TOR):</span> <span style='font-size:18px; font-weight:bold; color:#dc2626;'>${global_tor:,.0f} ({tor_pct:.1f}% NAV)</span></div>
+        <div><span style='color:#475569; font-size:14px;'>Global Portfolio %:</span> <span style='font-size:18px; font-weight:bold; color:#dc2626;'>${global_tor:,.0f} ({tor_pct:.1f}% NAV)</span></div>
         <div><span style='color:#475569; font-size:14px;'>Global Locked Profit:</span> <span style='font-size:18px; font-weight:bold; color:#16a34a;'>+${global_lp:,.0f}</span></div>
     </div>
     """, unsafe_allow_html=True)
@@ -227,11 +227,11 @@ with expander:
             
         return styles
 
-    display_cols = ['Ticker', 'Global Estate %', 'Earnings', 'Shares', 'Spot Price', 'Market Value', 'Cost', 'Avg SL', '20 SMA', '50 SMA', 'Open Risk', 'Locked Profit', 'Unlocked Profit', 'Total Profit', 'Live R-Mult', 'Days Active']
+    display_cols = ['Ticker', 'Global Portfolio %', 'Earnings', 'Shares', 'Spot Price', 'Market Value', 'Cost', 'Avg SL', '20 SMA', '50 SMA', 'Open Risk', 'Locked Profit', 'Unlocked Profit', 'Total Profit', 'Live R-Mult', 'Days Active']
     display_df = df_alpha[display_cols]
     
     st.dataframe(display_df.style.format({
-        'Global Estate %': '{:.2f}%', 'Shares': '{:,.0f}', 'Spot Price': '${:,.2f}', 
+        'Global Portfolio %': '{:.2f}%', 'Shares': '{:,.0f}', 'Spot Price': '${:,.2f}', 
         'Market Value': '${:,.0f}', 'Cost': '${:,.0f}', 'Avg SL': '${:,.2f}', 
         '20 SMA': '${:,.2f}', '50 SMA': '${:,.2f}',
         'Open Risk': '${:,.0f}', 'Locked Profit': '${:,.0f}', 'Unlocked Profit': '${:,.0f}', 

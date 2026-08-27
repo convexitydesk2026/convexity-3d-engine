@@ -23,26 +23,12 @@ st.markdown("""
         .mobile-blocker { display: none; }
         
         @media (max-width: 768px) { 
-            /* Hide the main Streamlit interface entirely */
             .stApp > header { display: none !important; }
             section.main > div.block-container { display: none !important; }
-            
-            /* Show the full-screen blocker */
             .mobile-blocker { 
-                display: flex !important; 
-                flex-direction: column; 
-                justify-content: center; 
-                align-items: center; 
-                height: 100vh; 
-                width: 100vw; 
-                background-color: #0e1117; 
-                color: white; 
-                text-align: center; 
-                padding: 40px; 
-                position: fixed; 
-                top: 0; 
-                left: 0; 
-                z-index: 999999; 
+                display: flex !important; flex-direction: column; justify-content: center; align-items: center; 
+                height: 100vh; width: 100vw; background-color: #0e1117; color: white; text-align: center; 
+                padding: 40px; position: fixed; top: 0; left: 0; z-index: 999999; 
             }
         }
     </style>
@@ -55,7 +41,6 @@ st.markdown("""
 
 st.markdown("""
     <style>
-    .locked-feature { opacity: 0.5; pointer-events: none; filter: grayscale(100%); }
     .premium-banner { background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px; border: 1px solid #334155;}
     .info-box { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
     </style>
@@ -87,6 +72,18 @@ def get_put_greeks(S, K, T, r, v):
     theta = (- (S * v * normPDF(d1)) / (2 * math.sqrt(T)) + r * K * math.exp(-r * T) * normCDF(-d2)) / 365
     return price, delta, gamma, vega, theta
 
+def get_call_greeks(S, K, T, r, v):
+    if K <= 0 or S <= 0: return 0.0, 0.0, 0.0, 0.0, 0.0
+    T = max(T, 0.0001)
+    d1 = (math.log(S / K) + (r + 0.5 * v ** 2) * T) / (v * math.sqrt(T))
+    d2 = d1 - v * math.sqrt(T)
+    price = S * normCDF(d1) - K * math.exp(-r * T) * normCDF(d2)
+    delta = normCDF(d1)
+    gamma = normPDF(d1) / (S * v * math.sqrt(T))
+    vega = (S * normPDF(d1) * math.sqrt(T)) / 100
+    theta = (- (S * v * normPDF(d1)) / (2 * math.sqrt(T)) - r * K * math.exp(-r * T) * normCDF(d2)) / 365
+    return price, delta, gamma, vega, theta
+
 @st.cache_data(ttl=3600)
 def get_live_market_data(ticker="SPY"):
     try:
@@ -96,10 +93,7 @@ def get_live_market_data(ticker="SPY"):
     except:
         return 550.0, 15.0
 
-
 def load_portfolio_data(file_or_path):
-    import pandas as pd
-    import numpy as np
     try:
         df = pd.read_csv(file_or_path)
         df['CloseDate'] = pd.to_datetime(df['CloseDate'])
@@ -108,67 +102,79 @@ def load_portfolio_data(file_or_path):
         df['ROC'] = (df['RealizedPnL'] / df['CapitalAtRisk']) * 100
         return df
     except Exception as e:
-        import streamlit as st
         st.error(f"Error loading data: {e}")
         return None
 
 # ==========================================
-# 3. SESSION STATE & FUNNEL LOGIC
+# 3. SESSION STATE 
 # ==========================================
-if 'customizations' not in st.session_state: st.session_state.customizations = 0
-if 'unlocked' not in st.session_state: st.session_state.unlocked = False
-
 if 'portfolio_df' not in st.session_state: st.session_state.portfolio_df = None
 
 if 'trade_params' not in st.session_state:
     init_spot, init_vix = get_live_market_data("SPY")
     st.session_state.trade_params = {
-        'ticker': 'SPY', 'dte': 45.0, 'k_s': float(round(init_spot * 0.95)),
-        'k_l': float(round(init_spot * 0.95)) - 5.0, 'qty': 10.0, 'spot': init_spot, 'vix': init_vix
+        'strategy': 'VRP: Bull Put Spread',
+        'ticker': 'SPY', 'dte': 45.0, 
+        'k_s': float(round(init_spot * 0.95)),
+        'k_l': float(round(init_spot * 0.95)) - 25.0, # 25-point default spread
+        'k_cs': float(round(init_spot * 1.05)),
+        'k_cl': float(round(init_spot * 1.05)) + 25.0,
+        'qty': 10.0, 'spot': init_spot, 'vix': init_vix
     }
 
 # ==========================================
-# 4. SIDEBAR: THE PLG FUNNEL GATE
+# 4. SIDEBAR
 # ==========================================
 with st.sidebar:
     st.markdown("### ⚙️ Trade Parameters")
-    is_locked = st.session_state.customizations >= 1 and not st.session_state.unlocked
     
+    strats = ["VRP: Bull Put Spread", "VRP: Bear Call Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"]
+    current_strat = st.session_state.trade_params.get('strategy', "VRP: Bull Put Spread")
+    strat_sel = st.selectbox("Select Options Strategy", strats, index=strats.index(current_strat))
+
     with st.form("trade_form"):
-        tckr_input = st.text_input("Ticker Symbol", value=st.session_state.trade_params['ticker'], disabled=is_locked)
-        dte_input = st.number_input("Days to Expiration (DTE)", value=float(st.session_state.trade_params['dte']), disabled=is_locked)
-        ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']), disabled=is_locked)
-        kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']), disabled=is_locked)
-        qty_input = st.number_input("Contracts", value=float(st.session_state.trade_params['qty']), disabled=is_locked)
+        tckr_input = st.text_input("Ticker Symbol (SPY, NDX, etc.)", value=st.session_state.trade_params['ticker'])
+        dte_input = st.number_input("Days to Expiration (DTE)", value=float(st.session_state.trade_params['dte']))
         
-        btn_text = "Render Custom Topography" if st.session_state.customizations == 0 else ("Locked" if is_locked else "Update Topography")
-        submit = st.form_submit_button(btn_text, type="primary", disabled=is_locked)
+        if strat_sel == "VRP: Bull Put Spread":
+            ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']))
+            kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']))
+            kcs_input, kcl_input = 0.0, 0.0
+        elif strat_sel == "VRP: Bear Call Spread":
+            ks_input = st.number_input("Short Call Strike", value=float(st.session_state.trade_params.get('k_cs', st.session_state.trade_params['k_s'])))
+            kl_input = st.number_input("Long Call Strike", value=float(st.session_state.trade_params.get('k_cl', st.session_state.trade_params['k_l'])))
+            kcs_input, kcl_input = 0.0, 0.0
+        elif strat_sel == "VRP: Iron Condor":
+            st.markdown("**Put Wing**")
+            ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']))
+            kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']))
+            st.markdown("**Call Wing**")
+            kcs_input = st.number_input("Short Call Strike", value=float(st.session_state.trade_params.get('k_cs', 580)))
+            kcl_input = st.number_input("Long Call Strike", value=float(st.session_state.trade_params.get('k_cl', 605)))
+        elif strat_sel == "Deep OTM Tail Hedge (Long Put)":
+            ks_input = 0.0
+            kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']))
+            kcs_input, kcl_input = 0.0, 0.0
+
+        qty_input = st.number_input("Contracts", value=float(st.session_state.trade_params['qty']))
         
-        if submit and not is_locked:
+        submit = st.form_submit_button("Update Topography", type="primary")
+        
+        if submit:
             new_spot, new_vix = get_live_market_data(tckr_input)
+            
+            # Map values properly based on strategy
+            p_ks = ks_input if strat_sel in ["VRP: Bull Put Spread", "VRP: Iron Condor"] else st.session_state.trade_params['k_s']
+            p_kl = kl_input if strat_sel in ["VRP: Bull Put Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"] else st.session_state.trade_params['k_l']
+            p_kcs = ks_input if strat_sel == "VRP: Bear Call Spread" else kcs_input if strat_sel == "VRP: Iron Condor" else st.session_state.trade_params.get('k_cs', 0.0)
+            p_kcl = kl_input if strat_sel == "VRP: Bear Call Spread" else kcl_input if strat_sel == "VRP: Iron Condor" else st.session_state.trade_params.get('k_cl', 0.0)
+
             st.session_state.trade_params = {
-                'ticker': tckr_input.upper(), 'dte': dte_input, 'k_s': ks_input, 
-                'k_l': kl_input, 'qty': qty_input, 'spot': new_spot, 'vix': new_vix
+                'strategy': strat_sel, 'ticker': tckr_input.upper(), 'dte': dte_input, 
+                'k_s': p_ks, 'k_l': p_kl, 'k_cs': p_kcs, 'k_cl': p_kcl,
+                'qty': qty_input, 'spot': new_spot, 'vix': new_vix
             }
-            st.session_state.customizations += 1
             st.rerun()
-
-    if is_locked:
-        st.markdown("---")
-        st.markdown("### 🔒 Premium Feature")
-        st.caption("You have used your free customization. Join the Convexity Desk to unlock unlimited access.")
-        st.link_button("🔓 Subscribe Now", "https://convexitydesk.com/#/portal/signup", type="primary", use_container_width=True)
-
-    with st.expander("🔑 Developer Access"):
-        dev_code = st.text_input("Enter Code", type="password")
-        if st.button("Unlock"):
-            if dev_code == "ESTATE2026":
-                st.session_state.unlocked = True
-                st.success("Unlocked!")
-                st.rerun()
-            else:
-                st.error("Invalid code.")
-
 
     st.markdown("---")
     with st.expander("📊 Portfolio Analysis", expanded=True):
@@ -186,26 +192,94 @@ with st.sidebar:
 # 5. MAIN UI & INTERACTIVE SLIDERS
 # ==========================================
 
-tab1, tab2 = st.tabs(["🕹️ Live Trade Simulator", "📈 Portfolio Dashboard"])
+tab1 = st.container()
+tab2 = st.container()
 
 with tab1:
     st.markdown("""
     <div class='premium-banner'>
-        <h2 style='margin:0; color:white;'>Institutional Options Topography Engine</h2>
-        <p style='margin:5px 0 0 0; color:#94a3b8;'>Visualizing the Gamma Cliff and Theta Glide Path of a Live Credit Spread.</p>
+        <h2 style='margin:0; color:white;'>Institutional Options Topography Engine & Ledger</h2>
+        <p style='margin:5px 0 0 0; color:#94a3b8;'>Visualizing the Gamma Cliff and Theta Glide Path across multiple Volatility Risk Premium strategies.</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    st.markdown("### 🟢 Active Options Performance Ledger")
+    
+    @st.cache_data
+    def load_dummy_options_ledger(spot_p):
+        data = [
+            {'Strategy': 'VRP: Bull Put Spread', 'Ticker': 'SPY', 'DTE': 35.0, 'Contracts': 10.0, 'Short Put': round(spot_p*0.95), 'Long Put': round(spot_p*0.95)-25, 'Short Call': 0.0, 'Long Call': 0.0, 'Status': '🟢 RIPE', 'Open PnL': 150.00},
+            {'Strategy': 'VRP: Iron Condor', 'Ticker': 'SPY', 'DTE': 35.0, 'Contracts': 5.0, 'Short Put': round(spot_p*0.93), 'Long Put': round(spot_p*0.93)-25, 'Short Call': round(spot_p*1.07), 'Long Call': round(spot_p*1.07)+25, 'Status': '🟢 RIPE', 'Open PnL': -45.00},
+            {'Strategy': 'Deep OTM Tail Hedge (Long Put)', 'Ticker': 'SPY', 'DTE': 120.0, 'Contracts': 20.0, 'Short Put': 0.0, 'Long Put': round(spot_p*0.80), 'Short Call': 0.0, 'Long Call': 0.0, 'Status': '🔵 HOLD', 'Open PnL': -125.50},
+        ]
+        return pd.DataFrame(data)
+        
+    df_opts = load_dummy_options_ledger(st.session_state.trade_params['spot'])
+    
+    st.markdown("To interact with the engine, you can **click on any row** in the active ledger, **manually edit** the table cells, upload a custom CSV portfolio, or configure arbitrary structures in the **Trade Parameters** sidebar.")
+    uploaded_opts = st.file_uploader("Upload Active Options CSV", type=['csv'], key="opts_up")
+    if uploaded_opts is not None:
+        try:
+            df_opts = pd.read_csv(uploaded_opts)
+        except Exception as e:
+            st.error(f"Error parsing CSV: {e}")
+            
+    try:
+        # Use on_select to capture user clicks and drive the 3D engine
+        event = st.data_editor(df_opts.style.format({
+            'Open PnL': '${:.2f}', 'Short Put': '{:.1f}', 'Long Put': '{:.1f}', 'Short Call': '{:.1f}', 'Long Call': '{:.1f}'
+        }).apply(lambda x: ['color: #16a34a; font-weight:bold;' if v > 0 else 'color: #dc2626; font-weight:bold;' if v < 0 else '' for v in x], subset=['Open PnL']), 
+        hide_index=True, use_container_width=True, on_select="rerun", selection_mode="single-row", num_rows="dynamic")
+        
+        if event and len(event.selection.rows) > 0:
+            sel_idx = event.selection.rows[0]
+            sel_row = df_opts.iloc[sel_idx]
+            
+            # Update session state with the clicked row's parameters!
+            if st.session_state.trade_params['k_s'] != sel_row['Short Put']: # prevent infinite loops
+                st.session_state.trade_params.update({
+                    'strategy': sel_row['Strategy'],
+                    'ticker': sel_row['Ticker'],
+                    'dte': float(sel_row['DTE']),
+                    'qty': float(sel_row['Contracts']),
+                    'k_s': float(sel_row['Short Put']),
+                    'k_l': float(sel_row['Long Put']),
+                    'k_cs': float(sel_row['Short Call']),
+                    'k_cl': float(sel_row['Long Call'])
+                })
+                st.rerun()
+    except Exception as e:
+        # Fallback for older Streamlit versions without on_select
+        st.dataframe(df_opts.style.format({
+            'Open PnL': '${:.2f}', 'Short Put': '{:.1f}', 'Long Put': '{:.1f}', 'Short Call': '{:.1f}', 'Long Call': '{:.1f}'
+        }).apply(lambda x: ['color: #16a34a; font-weight:bold;' if v > 0 else 'color: #dc2626; font-weight:bold;' if v < 0 else '' for v in x], subset=['Open PnL']), 
+        hide_index=True, use_container_width=True)
+        
+    with st.expander("🚦 RIPE vs HOLD Signal Matrix Explained"):
+        st.markdown("""
+        Our quantitative engine uses real-time market data (SPY and VIX) to automatically grade the safety of entering new options structures.
+        *   **🟢 RIPE:** Market conditions are optimal for this specific strategy. (e.g., For Iron Condors, IV Rank is between 30-70% and the market is non-trending).
+        *   **🔵 HOLD:** You should hold existing positions but do not open new ones. This usually triggers when implied volatility is too low (premiums are cheap) or the market trend is too dangerous to fade.
+        *   **🔴 BANNED (AVOID):** The mathematical probability of loss is extremely high. (e.g., Selling Bear Calls during a raging bull market where SPY is above its 50-day moving average).
+        """)
+        st.page_link("pages/6_🛩️_Pre_Flight_Matrix.py", label="View live market diagnostics on the Pre-Flight Matrix", icon="🛩️")
+    
+    st.markdown("---")
+    st.markdown("### 3D Volatility Surface Stress Tester")
 
     st.markdown("""
     <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; font-size: 14px; color: #334155; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-        <b>ℹ️ Data Freshness & Controls:</b> Market data is sourced via Yahoo Finance (approx. 15-min delayed) and cached hourly to ensure server stability. Use the sliders below to stress-test the live position against sudden Volatility (VIX) spikes and Time (Theta) decay.
+        <b>ℹ️ Data Freshness & Controls:</b> Market data is sourced via Yahoo Finance (approx. 15-min delayed). Use the sliders below to stress-test the simulated <b>Strategy</b> against sudden Volatility (VIX) spikes and Time (Theta) decay.
     </div>
     """, unsafe_allow_html=True)
 
     p = st.session_state.trade_params
+    strat = p.get('strategy', "VRP: Bull Put Spread")
     spot_price = p['spot']
     K_s = p['k_s']
     K_l = p['k_l']
+    K_cs = p.get('k_cs', 0.0)
+    K_cl = p.get('k_cl', 0.0)
     init_dte = p['dte']
     qty = p['qty']
     r_rate = 0.045
@@ -219,19 +293,69 @@ with tab1:
     iv_dec = iv_override / 100.0
     curr_dte = init_dte - days_in_trade
 
-    t0_s_price, _, _, _, _ = get_put_greeks(spot_price, K_s, init_dte/365.0, r_rate, iv_dec)
-    t0_l_price, _, _, _, _ = get_put_greeks(spot_price, K_l, init_dte/365.0, r_rate, iv_dec)
-    prem_collected = t0_s_price - t0_l_price
+    def get_live_value(px, stg, T, r, v, ks, kl, kcs, kcl):
+        if stg == "VRP: Bull Put Spread":
+            ts = get_put_greeks(px, ks, T, r, v)[0]
+            tl = get_put_greeks(px, kl, T, r, v)[0]
+            return ts - tl
+        elif stg == "VRP: Bear Call Spread":
+            ts = get_call_greeks(px, ks, T, r, v)[0]
+            tl = get_call_greeks(px, kl, T, r, v)[0]
+            return ts - tl
+        elif stg == "VRP: Iron Condor":
+            tps = get_put_greeks(px, ks, T, r, v)[0]
+            tpl = get_put_greeks(px, kl, T, r, v)[0]
+            tcs = get_call_greeks(px, kcs, T, r, v)[0]
+            tcl = get_call_greeks(px, kcl, T, r, v)[0]
+            return (tps - tpl) + (tcs - tcl)
+        elif stg == "Deep OTM Tail Hedge (Long Put)":
+            return get_put_greeks(px, kl, T, r, v)[0]
+        return 0
+
+    def get_exp_value(px, stg, ks, kl, kcs, kcl):
+        if stg == "VRP: Bull Put Spread":
+            return max(ks - px, 0) - max(kl - px, 0)
+        elif stg == "VRP: Bear Call Spread":
+            return max(px - ks, 0) - max(px - kl, 0)
+        elif stg == "VRP: Iron Condor":
+            return (max(ks - px, 0) - max(kl - px, 0)) + (max(px - kcs, 0) - max(px - kcl, 0))
+        elif stg == "Deep OTM Tail Hedge (Long Put)":
+            return max(kl - px, 0)
+        return 0
+
+    # Calculate Entry Premium
+    entry_val = get_live_value(spot_price, strat, init_dte/365.0, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+
+    # Calculate Margins
+    if strat == "VRP: Bull Put Spread":
+        margin_req = (K_s - K_l) * 100 * qty
+    elif strat == "VRP: Bear Call Spread":
+        margin_req = (K_cl - K_cs) * 100 * qty
+    elif strat == "VRP: Iron Condor":
+        margin_req = max((K_s - K_l), (K_cl - K_cs)) * 100 * qty
+    else: # Tail Hedge
+        margin_req = entry_val * 100 * qty
 
     # ==========================================
     # 6. 2D & 3D SURFACE CALCULATION
     # ==========================================
-    min_plot = int(min(K_s, K_l) - 30)
-    max_plot = int(spot_price + 20)
+    # Dynamic plotting bounds
+    if strat == "VRP: Bear Call Spread":
+        min_plot = int(spot_price - 20)
+        max_plot = int(max(K_cs, K_cl) + 30)
+    elif strat == "VRP: Iron Condor":
+        min_plot = int(min(K_s, K_l) - 30)
+        max_plot = int(max(K_cs, K_cl) + 30)
+    elif strat == "Deep OTM Tail Hedge (Long Put)":
+        min_plot = int(K_l - 60)
+        max_plot = int(spot_price + 10)
+    else: # Bull Put
+        min_plot = int(min(K_s, K_l) - 30)
+        max_plot = int(spot_price + 20)
+        
     x_vals = [px / 2.0 for px in range(int(min_plot * 2), int(max_plot * 2) + 1)]
     y_3d = list(range(int(init_dte), -1, -1))
     z_3d = []
-
     y_exp, y_init, y_curr = [], [], []
 
     for d in y_3d:
@@ -239,13 +363,13 @@ with tab1:
         z_row = []
         for px in x_vals:
             if T_3d <= 0.0001: 
-                val = (prem_collected - (max(K_s - px, 0) - max(K_l - px, 0))) * qty * 100
+                exp_cost = get_exp_value(px, strat, K_s, K_l, K_cs, K_cl)
+                val = (entry_val - exp_cost) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (exp_cost - entry_val) * qty * 100
                 z_row.append(val)
                 if d == 0: y_exp.append(val)
             else:
-                t_s, _, _, _, _ = get_put_greeks(px, K_s, T_3d, r_rate, iv_dec)
-                t_l, _, _, _, _ = get_put_greeks(px, K_l, T_3d, r_rate, iv_dec)
-                val = (prem_collected - (t_s - t_l)) * qty * 100
+                live_cost = get_live_value(px, strat, T_3d, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+                val = (entry_val - live_cost) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (live_cost - entry_val) * qty * 100
                 z_row.append(val)
                 if d == int(init_dte): y_init.append(val)
                 if d == int(curr_dte): y_curr.append(val)
@@ -260,19 +384,33 @@ with tab1:
 
     with col_2d:
         fig_2d = go.Figure()
-        fig_2d.add_vrect(x0=K_s, x1=max_plot, fillcolor="green", opacity=0.05, layer="below", line_width=0)    
-        fig_2d.add_vrect(x0=min_plot, x1=K_l, fillcolor="red", opacity=0.05, layer="below", line_width=0)
-        fig_2d.add_vline(x=K_s, line_dash="dot", line_color="green", annotation_text="Short", annotation_position="top left")
-        fig_2d.add_vline(x=K_l, line_dash="dot", line_color="red", annotation_text="Long", annotation_position="top right")
+        
+        # Highlight regions based on strategy
+        if strat in ["VRP: Bull Put Spread", "VRP: Iron Condor"]:
+            fig_2d.add_vrect(x0=K_s, x1=spot_price if strat=="VRP: Bull Put Spread" else K_cs, fillcolor="green", opacity=0.05, layer="below", line_width=0)    
+            fig_2d.add_vrect(x0=min_plot, x1=K_l, fillcolor="red", opacity=0.05, layer="below", line_width=0)
+            fig_2d.add_vline(x=K_s, line_dash="dot", line_color="green", annotation_text="Short Put", annotation_position="top left")
+            fig_2d.add_vline(x=K_l, line_dash="dot", line_color="red", annotation_text="Long Put", annotation_position="top right")
+        
+        if strat in ["VRP: Bear Call Spread", "VRP: Iron Condor"]:
+            fig_2d.add_vrect(x0=spot_price if strat=="VRP: Bear Call Spread" else K_s, x1=K_cs, fillcolor="green", opacity=0.05, layer="below", line_width=0)    
+            fig_2d.add_vrect(x0=K_cl, x1=max_plot, fillcolor="red", opacity=0.05, layer="below", line_width=0)
+            fig_2d.add_vline(x=K_cs, line_dash="dot", line_color="green", annotation_text="Short Call", annotation_position="top left")
+            fig_2d.add_vline(x=K_cl, line_dash="dot", line_color="red", annotation_text="Long Call", annotation_position="top right")
+
+        if strat == "Deep OTM Tail Hedge (Long Put)":
+            fig_2d.add_vrect(x0=min_plot, x1=K_l, fillcolor="green", opacity=0.05, layer="below", line_width=0)
+            fig_2d.add_vline(x=K_l, line_dash="dot", line_color="green", annotation_text="Long Put", annotation_position="top left")
 
         fig_2d.add_trace(go.Scatter(x=x_vals, y=y_exp, mode='lines', name='Expiration', line=dict(color='gray', dash='dot', width=2)))
         fig_2d.add_trace(go.Scatter(x=x_vals, y=y_init, mode='lines', name='Entry Day', line=dict(color='purple', width=8, dash='dash')))
         fig_2d.add_trace(go.Scatter(x=x_vals, y=y_curr, mode='lines', name='Today', line=dict(color='#2563eb', width=4.5)))
     
-        tC_s, _, _, _, _ = get_put_greeks(spot_price, K_s, curr_dte/365.0, r_rate, iv_dec)
-        tC_l, _, _, _, _ = get_put_greeks(spot_price, K_l, curr_dte/365.0, r_rate, iv_dec)
-        curr_pnl = (prem_collected - (tC_s - tC_l)) * qty * 100
+        curr_cost = get_live_value(spot_price, strat, curr_dte/365.0, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+        curr_pnl = (entry_val - curr_cost) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (curr_cost - entry_val) * qty * 100
+        
         fig_2d.add_trace(go.Scatter(x=[spot_price], y=[curr_pnl], mode='markers', name='Current Price', marker=dict(color='white', size=12, line=dict(color='black', width=2))))
+        fig_2d.add_hline(y=0, line_dash="dot", line_color="black")
     
         fig_2d.update_layout(title="2D Theta Decay Profile", margin=dict(l=20, r=20, t=40, b=20), height=500, legend=dict(orientation="h", y=-0.2))
         st.plotly_chart(fig_2d, width="stretch")
@@ -289,43 +427,49 @@ with tab1:
             if int(d) not in skip_days:
                 fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[d]*len(x_vals), z=z_3d[idx_d], mode='lines', line=dict(color='black', width=1), showlegend=False, hoverinfo='skip'))
 
-        # Scaffolding Planes
-        z_green, z_red = [], []
-        for d in y_3d:
-            T_3d = max(d / 365.0, 0.0001)
-            t_s_g, _, _, _, _ = get_put_greeks(K_s, K_s, T_3d, r_rate, iv_dec)
-            t_l_g, _, _, _, _ = get_put_greeks(K_s, K_l, T_3d, r_rate, iv_dec)
-            z_green.append((prem_collected - (t_s_g - t_l_g)) * qty * 100)
-            t_s_r, _, _, _, _ = get_put_greeks(K_l, K_s, T_3d, r_rate, iv_dec)
-            t_l_r, _, _, _, _ = get_put_greeks(K_l, K_l, T_3d, r_rate, iv_dec)
-            z_red.append((prem_collected - (t_s_r - t_l_r)) * qty * 100)
-        
         time_stop = 21.0
-        T_stop = max(time_stop / 365.0, 0.0001)
-        z_yellow = []
-        for px in x_vals:
-            t_s_y, _, _, _, _ = get_put_greeks(px, K_s, T_stop, r_rate, iv_dec)
-            t_l_y, _, _, _, _ = get_put_greeks(px, K_l, T_stop, r_rate, iv_dec)
-            z_yellow.append((prem_collected - (t_s_y - t_l_y)) * qty * 100)
+        
+        # Scaffolding Planes (Restored Red Plane)
+        def draw_plane_perimeter(x_coords, y_coords, z_coords, color):
+            fig_3d.add_trace(go.Scatter3d(x=x_coords, y=y_coords, z=z_coords, mode='lines', line=dict(color=color, width=4), showlegend=False, hoverinfo='skip'))
 
-        fig_3d.add_trace(go.Scatter3d(x=[K_s]*len(y_3d), y=y_3d, z=z_green, mode='lines', name='Short Strike Limit', line=dict(color='green', width=6), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[K_l]*len(y_3d), y=y_3d, z=z_red, mode='lines', name='Max Loss Limit', line=dict(color='red', width=6), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[time_stop]*len(x_vals), z=z_yellow, mode='lines', name='21-DTE Time Stop Limit', line=dict(color='gold', width=6), showlegend=False, hoverinfo='skip'))
+        if strat in ["VRP: Bull Put Spread", "VRP: Iron Condor"]:
+            fig_3d.add_trace(go.Scatter3d(x=[K_s, K_s], y=[time_stop, time_stop], z=[z_min, z_max], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
+            fig_3d.add_trace(go.Surface(x=[[K_s, K_s],[K_s, K_s]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'green'],[1, 'green']], opacity=0.225, showscale=False, hoverinfo='skip'))
+            draw_plane_perimeter([K_s, K_s, K_s, K_s, K_s], [0, init_dte, init_dte, 0, 0], [z_min, z_min, z_max, z_max, z_min], 'green')
+            
+            fig_3d.add_trace(go.Scatter3d(x=[K_l, K_l], y=[time_stop, time_stop], z=[z_min, z_max], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
+            fig_3d.add_trace(go.Surface(x=[[K_l, K_l],[K_l, K_l]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'red'],[1, 'red']], opacity=0.225, showscale=False, hoverinfo='skip'))
+            draw_plane_perimeter([K_l, K_l, K_l, K_l, K_l], [0, init_dte, init_dte, 0, 0], [z_min, z_min, z_max, z_max, z_min], 'red')
+            
+        if strat in ["VRP: Bear Call Spread", "VRP: Iron Condor"]:
+            fig_3d.add_trace(go.Scatter3d(x=[K_cs, K_cs], y=[time_stop, time_stop], z=[z_min, z_max], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
+            fig_3d.add_trace(go.Surface(x=[[K_cs, K_cs],[K_cs, K_cs]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'green'],[1, 'green']], opacity=0.225, showscale=False, hoverinfo='skip'))
+            draw_plane_perimeter([K_cs, K_cs, K_cs, K_cs, K_cs], [0, init_dte, init_dte, 0, 0], [z_min, z_min, z_max, z_max, z_min], 'green')
+            
+            fig_3d.add_trace(go.Scatter3d(x=[K_cl, K_cl], y=[time_stop, time_stop], z=[z_min, z_max], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
+            fig_3d.add_trace(go.Surface(x=[[K_cl, K_cl],[K_cl, K_cl]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'red'],[1, 'red']], opacity=0.225, showscale=False, hoverinfo='skip'))
+            draw_plane_perimeter([K_cl, K_cl, K_cl, K_cl, K_cl], [0, init_dte, init_dte, 0, 0], [z_min, z_min, z_max, z_max, z_min], 'red')
 
-        fig_3d.add_trace(go.Surface(x=[[K_s, K_s],[K_s, K_s]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'green'],[1, 'green']], opacity=0.225, showscale=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Surface(x=[[K_l, K_l],[K_l, K_l]], y=[[0, init_dte],[0, init_dte]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'red'],[1, 'red']], opacity=0.225, showscale=False, hoverinfo='skip'))
         fig_3d.add_trace(go.Surface(x=[[x_vals[0], x_vals[-1]], [x_vals[0], x_vals[-1]]], y=[[time_stop, time_stop],[time_stop, time_stop]], z=[[z_min, z_min],[z_max, z_max]], colorscale=[[0, 'yellow'],[1, 'yellow']], opacity=0.30, showscale=False, hoverinfo='skip'))
+        draw_plane_perimeter([x_vals[0], x_vals[-1], x_vals[-1], x_vals[0], x_vals[0]], [time_stop, time_stop, time_stop, time_stop, time_stop], [z_min, z_min, z_max, z_max, z_min], 'gold')
+        
         fig_3d.add_trace(go.Surface(x=[[x_vals[0], x_vals[-1]],[x_vals[0], x_vals[-1]]], y=[[0, 0],[init_dte, init_dte]], z=[[0, 0],[0, 0]], colorscale=[[0, 'gray'],[1, 'gray']], opacity=0.30, showscale=False, hoverinfo='skip'))
+        draw_plane_perimeter([x_vals[0], x_vals[-1], x_vals[-1], x_vals[0], x_vals[0]], [0, 0, init_dte, init_dte, 0], [0, 0, 0, 0, 0], 'gray')
 
-        # Wireframes
-        fig_3d.add_trace(go.Scatter3d(x=[K_s, K_s], y=[time_stop, time_stop], z=[z_min, z_max], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[K_l, K_l], y=[time_stop, time_stop], z=[z_min, z_max], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[K_s, K_s, K_s, K_s, K_s], y=[0, init_dte, init_dte, 0, 0], z=[z_min, z_min, z_max, z_max, z_min], mode='lines', line=dict(color='green', width=3), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[K_l, K_l, K_l, K_l, K_l], y=[0, init_dte, init_dte, 0, 0], z=[z_min, z_min, z_max, z_max, z_min], mode='lines', line=dict(color='red', width=3), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[x_vals[0], x_vals[-1], x_vals[-1], x_vals[0], x_vals[0]], y=[time_stop, time_stop, time_stop, time_stop, time_stop], z=[z_min, z_min, z_max, z_max, z_min], mode='lines', line=dict(color='yellow', width=3), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[x_vals[0], x_vals[-1], x_vals[-1], x_vals[0], x_vals[0]], y=[0, 0, init_dte, init_dte, 0], z=[0, 0, 0, 0, 0], mode='lines', line=dict(color='gray', width=3), showlegend=False, hoverinfo='skip'))
+        # Intersections between Planes (Black dashed lines)
+        fig_3d.add_trace(go.Scatter3d(x=[x_vals[0], x_vals[-1]], y=[time_stop, time_stop], z=[0, 0], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip')) # Yellow & Gray
 
-        # Breakeven Roots
+        if strat in ["VRP: Bull Put Spread", "VRP: Iron Condor"]:
+            fig_3d.add_trace(go.Scatter3d(x=[K_s, K_s], y=[0, init_dte], z=[0, 0], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip')) # Green & Gray (Put)
+            fig_3d.add_trace(go.Scatter3d(x=[K_l, K_l], y=[0, init_dte], z=[0, 0], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip')) # Red & Gray (Put)
+        if strat in ["VRP: Bear Call Spread", "VRP: Iron Condor"]:
+            fig_3d.add_trace(go.Scatter3d(x=[K_cs, K_cs], y=[0, init_dte], z=[0, 0], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip')) # Green & Gray (Call)
+            fig_3d.add_trace(go.Scatter3d(x=[K_cl, K_cl], y=[0, init_dte], z=[0, 0], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip')) # Red & Gray (Call)
+        if strat == "Deep OTM Tail Hedge (Long Put)":
+            fig_3d.add_trace(go.Scatter3d(x=[K_l, K_l], y=[0, init_dte], z=[0, 0], mode='lines', line=dict(color='black', width=6, dash='dash'), showlegend=False, hoverinfo='skip'))
+
+        # Breakeven Roots (The Grey Cross)
         roots_by_day = []
         for idx_d, d in enumerate(y_3d):
             z_row = z_3d[idx_d]
@@ -347,42 +491,61 @@ with tab1:
                     be_y.append(d)
                     be_z.append(0)
             fig_3d.add_trace(go.Scatter3d(x=be_x, y=be_y, z=be_z, mode='lines', name='Breakeven ($0)', line=dict(color='gray', width=10), showlegend=False, hoverinfo='skip'))
-
-        # Targets & Stops
-        target_pnl = (prem_collected / 2.0) * qty * 100
-        fig_3d.add_trace(go.Scatter3d(x=[spot_price], y=[curr_dte], z=[target_pnl], mode='markers', name='50% Target', marker=dict(color='#16a34a', size=15, symbol='cross')))
-        stop_loss_pnl = -(abs(prem_collected) * 2.0) * qty * 100 
-        fig_3d.add_trace(go.Scatter3d(x=[spot_price], y=[curr_dte], z=[stop_loss_pnl], mode='markers', name='200% Stop Loss', marker=dict(color='#dc2626', size=15, symbol='cross')))
+            
+        # Yellow Plane Intersection (21-DTE Time Stop)
+        z_yellow = []
+        for px in x_vals:
+            v_yellow = get_live_value(px, strat, time_stop/365.0, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+            pnl_yellow = (entry_val - v_yellow) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (v_yellow - entry_val) * qty * 100
+            z_yellow.append(pnl_yellow)
+        fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[time_stop]*len(x_vals), z=z_yellow, mode='lines', line=dict(color='gold', width=10), showlegend=False, hoverinfo='skip'))
+        
+        # Green & Red Plane Intersections (Strikes)
+        def plot_strike_intersection(strike, color):
+            z_strike = []
+            for d in y_3d:
+                v_strike = get_live_value(strike, strat, d/365.0, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+                pnl_strike = (entry_val - v_strike) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (v_strike - entry_val) * qty * 100
+                z_strike.append(pnl_strike)
+            fig_3d.add_trace(go.Scatter3d(x=[strike]*len(y_3d), y=y_3d, z=z_strike, mode='lines', line=dict(color=color, width=10), showlegend=False, hoverinfo='skip'))
+            
+        if strat in ["VRP: Bull Put Spread", "VRP: Iron Condor"]:
+            plot_strike_intersection(K_s, 'green')
+            plot_strike_intersection(K_l, 'red')
+        if strat in ["VRP: Bear Call Spread", "VRP: Iron Condor"]:
+            plot_strike_intersection(K_cs, 'green')
+            plot_strike_intersection(K_cl, 'red')
+        if strat == "Deep OTM Tail Hedge (Long Put)":
+            plot_strike_intersection(K_l, 'green') # For tail hedge, the long put is the primary asset plane
 
         # Theta Glide Path
         y_glide = [d for d in y_3d if d <= curr_dte]
         z_glide = []
         for d in y_glide:
             T_glide = max(d / 365.0, 0.0001)
-            t_s_glide, _, _, _, _ = get_put_greeks(spot_price, K_s, T_glide, r_rate, iv_dec)
-            t_l_glide, _, _, _, _ = get_put_greeks(spot_price, K_l, T_glide, r_rate, iv_dec)
-            z_glide.append((prem_collected - (t_s_glide - t_l_glide)) * qty * 100)
+            lc = get_live_value(spot_price, strat, T_glide, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+            z_glide.append((entry_val - lc) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (lc - entry_val) * qty * 100)
+            
         fig_3d.add_trace(go.Scatter3d(x=[spot_price] * len(y_glide), y=y_glide, z=z_glide, mode='lines', name='Theta Glide Path', line=dict(color='cyan', width=8, dash='dashdot')))
 
         # Entry Day, 50% DTE, and Today lines
         half_dte = init_dte / 2.0
         y_half = []
         for px in x_vals:
-            tH_s, _, _, _, _ = get_put_greeks(px, K_s, half_dte/365.0, r_rate, iv_dec)
-            tH_l, _, _, _, _ = get_put_greeks(px, K_l, half_dte/365.0, r_rate, iv_dec)
-            y_half.append((prem_collected - (tH_s - tH_l)) * qty * 100)
+            lc_h = get_live_value(px, strat, half_dte/365.0, r_rate, iv_dec, K_s, K_l, K_cs, K_cl)
+            y_half.append((entry_val - lc_h) * qty * 100 if strat != "Deep OTM Tail Hedge (Long Put)" else (lc_h - entry_val) * qty * 100)
 
         fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[init_dte]*len(x_vals), z=y_init, mode='lines', name='Entry Day', line=dict(color='purple', width=10, dash='dash')))
         fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[half_dte]*len(x_vals), z=y_half, mode='lines', name='50% DTE', line=dict(color='orange', width=6, dash='dash')))
         fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[curr_dte]*len(x_vals), z=y_curr, mode='lines', name='Today', line=dict(color='#2563eb', width=7)))
+        fig_3d.add_trace(go.Scatter3d(x=x_vals, y=[0]*len(x_vals), z=y_exp, mode='lines', name='Expiration Day', line=dict(color='gray', width=10, dash='dot')))
 
         # Current Price Anchor
         fig_3d.add_trace(go.Scatter3d(x=[spot_price], y=[curr_dte], z=[curr_pnl], mode='markers', name='Current Price', marker=dict(color='white', size=8, line=dict(color='black', width=2))))
         fig_3d.add_trace(go.Scatter3d(x=[spot_price, spot_price], y=[curr_dte, curr_dte], z=[0, curr_pnl], mode='lines', name='Anchor Line', line=dict(color='white', width=3, dash='dot'), showlegend=False, hoverinfo='skip'))
-        fig_3d.add_trace(go.Scatter3d(x=[spot_price], y=[curr_dte], z=[0], mode='markers', name='Zero Floor Anchor', marker=dict(color='white', size=5, symbol='cross'), showlegend=False, hoverinfo='skip'))            
 
         fig_3d.update_layout(
-            title="3D Volatility Surface", margin=dict(l=0, r=0, b=0, t=40), height=500, 
+            title=f"3D Volatility Surface: {strat}", margin=dict(l=0, r=0, b=0, t=40), height=500, 
             scene=dict(
                 xaxis_title='Underlying Price (USD)', yaxis_title='Days to Expiration (DTE)', zaxis_title='Unrealized P&L (USD)', 
                 yaxis=dict(autorange='reversed'), camera=dict(eye=dict(x=-1.25, y=-1.25, z=1.25))
@@ -393,54 +556,29 @@ with tab1:
 
     st.markdown("""
     <div style="display: flex; justify-content: center; gap: 20px; font-size: 12px; color: #94a3b8; margin-top: -10px; margin-bottom: 20px; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; background-color: rgba(34, 197, 94, 0.4); border: 1px solid green;"></div> <b>Green Plane:</b> Short Strike (Max Profit Zone)</div>
-        <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; background-color: rgba(239, 68, 68, 0.4); border: 1px solid red;"></div> <b>Red Plane:</b> Long Strike (Max Loss Zone)</div>
+        <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; background-color: rgba(34, 197, 94, 0.4); border: 1px solid green;"></div> <b>Green Plane:</b> Short Strike Zone</div>
+        <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; background-color: rgba(239, 68, 68, 0.4); border: 1px solid red;"></div> <b>Red Plane:</b> Max Loss Zone</div>
         <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; background-color: rgba(250, 204, 21, 0.4); border: 1px solid gold;"></div> <b>Yellow Plane:</b> 21-DTE Time Stop (Gamma Cliff)</div>
         <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; background-color: rgba(156, 163, 175, 0.4); border: 1px solid gray;"></div> <b>Grey Plane:</b> USD 0 Breakeven Floor</div>
     </div>
     """, unsafe_allow_html=True)
-
-    # ==========================================
-    # 8. GREEKS & METRICS TABLE
-    # ==========================================
-    tC_s_d, tC_s_g, tC_s_t, tC_s_v = get_put_greeks(spot_price, K_s, curr_dte/365.0, r_rate, iv_dec)[1:]
-    tC_l_d, tC_l_g, tC_l_t, tC_l_v = get_put_greeks(spot_price, K_l, curr_dte/365.0, r_rate, iv_dec)[1:]
-
-    net_delta = (tC_l_d - tC_s_d) * qty * 100
-    net_theta = (tC_l_t - tC_s_t) * qty * 100
-    net_vega = (tC_l_v - tC_s_v) * qty * 100
-    margin_req = (K_s - K_l) * 100 * qty
-
-    st.markdown(f"""
-    <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e5e7eb; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); margin-top: 20px; margin-bottom: 30px;">
-        <table style="min-w-full; width: 100%; border-collapse: collapse; background-color: white; text-align: center;">
-            <thead style="background-color: #1e293b; color: white;">
-                <tr>
-                    <th style="padding: 12px; font-weight: 600;">Live Spot Price</th>
-                    <th style="padding: 12px; font-weight: 600;">Net Delta</th>
-                    <th style="padding: 12px; font-weight: 600;">Net Theta (Daily)</th>
-                    <th style="padding: 12px; font-weight: 600;">Net Vega</th>
-                    <th style="padding: 12px; font-weight: 600; background-color: #7f1d1d;">Margin Locked</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #374151;">USD {spot_price:.2f}</td>
-                    <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #374151;">{net_delta:.2f}</td>
-                    <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #16a34a;">USD {net_theta:+.2f}</td>
-                    <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: bold; color: #2563eb;">USD {net_vega:+.2f}</td>
-                    <td style="padding: 16px; font-family: monospace; font-size: 18px; font-weight: 900; color: #dc2626;">USD {margin_req:,.0f}</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    """, unsafe_allow_html=True)
-
     
+    # Dynamic Educational Footer
+    st.markdown("---")
+    if strat == "VRP: Bull Put Spread":
+        st.info("**Strategy Analysis (Bull Put Spread):** This is a bullish/neutral credit spread. You collect a premium upfront by selling a Put option, and cap your catastrophic risk by buying a deeper OTM Put. The trade profits as long as the underlying asset stays above your Short Put strike (Green Plane). Time decay (Theta) works in your favor.")
+    elif strat == "VRP: Bear Call Spread":
+        st.info("**Strategy Analysis (Bear Call Spread):** This is a bearish/neutral credit spread. You collect a premium upfront by selling a Call option, and cap your upside risk by buying a further OTM Call. The trade profits as long as the asset stays below your Short Call strike (Green Plane). Time decay works in your favor.")
+    elif strat == "VRP: Iron Condor":
+        st.info("**Strategy Analysis (Iron Condor):** This is a market-neutral strategy composed of a Bull Put Spread and a Bear Call Spread. You collect premium on both sides, creating a 'profit tent' between the two Green Planes. The trade profits if the asset trades flat and remains rangebound. This strategy benefits heavily from Time decay and Volatility crush.")
+    elif strat == "Deep OTM Tail Hedge (Long Put)":
+        st.info("**Strategy Analysis (Tail Hedge):** This is a catastrophic insurance policy. You pay a debit upfront to buy a deep Out-of-the-Money Put. Notice how the Theta Glide path is negative (it bleeds money every day). However, if the market crashes (moving violently to the left), the Delta and Gamma explode, yielding massive convex returns to offset portfolio losses.")
+
 # ==========================================
 # 9. EDUCATIONAL CONTENT & EXPECTANCY CHART
 # ==========================================
 with tab2:
+    st.markdown("---")
     st.markdown("### 📊 The Mathematical Edge: Closed Trade Expectancy")
     st.markdown("This dashboard represents real-world performance of the Volatility Risk Premium (VRP) strategy.")
     
@@ -492,7 +630,7 @@ with tab2:
         In simple terms: **Market participants consistently overpay for crash insurance.** By systematically selling Out-of-the-Money (OTM) put spreads on the S&P 500, we act as the insurance company, collecting the premium as it decays over time (Theta).
         """)
         
-        st.markdown("### How We Enhanced It (The Estate Barbell)")
+        st.markdown("### How We Enhanced It (The Convexity Barbell)")
         st.markdown("""
         Selling insurance is profitable until a Black Swan event occurs. To prevent catastrophic ruin, we employ two strict enhancements:
         1. **The 21-DTE Time Stop:** We never hold short options into expiration. We mechanically close trades at 21 Days to Expiration to avoid the "Gamma Cliff" (where price sensitivity explodes).

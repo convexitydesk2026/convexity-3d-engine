@@ -131,7 +131,7 @@ if not privacy_mode:
     fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_c_pnl'], name='Silo C', marker_color='#4ade80'))
     
     # Add Cumulative Lines
-    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_pnl'], name='Estate (Cum PnL USD)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
+    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_pnl'], name='Portfolio (Cum PnL USD)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_usd_cum'], name='SPY (Cum PnL USD)', mode='lines', line=dict(color='#3b82f6', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['qqq_usd_cum'], name='QQQ (Cum PnL USD)', mode='lines', line=dict(color='#dc2626', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_usd_cum'], name='RSP (Cum PnL USD)', mode='lines', line=dict(color='#16a34a', width=3), yaxis='y2'))

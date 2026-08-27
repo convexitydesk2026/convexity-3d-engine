@@ -46,22 +46,20 @@ def generate_mc_paths(pnl_array):
     
     return c_sim, m_dds, m_avg_dd, m_best_dd, m_worst_dd, m_avg_path
 
-def get_spy_data(end_date, num_days=252):
-    # Fetch SPY data. We fetch slightly more days (e.g. 400 calendar days) to guarantee we get 252 trading days.
-    start_date = end_date - timedelta(days=365 + 30)
+def get_spy_data(end_date, num_days=252, start_date=None):
+    if start_date is None:
+        start_date = end_date - timedelta(days=365 + 30)
     try:
-        spy = yf.download("SPY", start=start_date.strftime('%Y-%m-%d'), end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'), progress=False)
+        spy = yf.Ticker("SPY").history(start=start_date.strftime('%Y-%m-%d'), end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'))
         if spy.empty:
             return np.zeros(num_days)
         
-        # Get closing prices, limit to exactly `num_days`
-        if isinstance(spy.columns, pd.MultiIndex):
-            spy_closes = spy['Close'].squeeze().values[-num_days:]
-        else:
-            spy_closes = spy['Close'].values[-num_days:]
-            
-        if len(spy_closes) < num_days:
-            # If we somehow didn't get enough data, pad with zeros
+        spy_closes = spy['Close'].values
+        # If the fetched data is longer than the PnL array, truncate to the most recent `num_days`
+        if len(spy_closes) > num_days:
+            spy_closes = spy_closes[-num_days:]
+        # If it's shorter, pad it with zeros at the beginning
+        elif len(spy_closes) < num_days:
             spy_closes = np.pad(spy_closes, (num_days - len(spy_closes), 0), 'constant', constant_values=spy_closes[0] if len(spy_closes)>0 else 0)
             
         return spy_closes
