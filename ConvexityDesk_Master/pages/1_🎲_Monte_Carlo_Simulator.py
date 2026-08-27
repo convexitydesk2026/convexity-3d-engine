@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import random
 from datetime import datetime, date
-from public_core_math import generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics
+from public_core_math import generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, render_master_ledger_control_panel, compute_daily_trajectory, render_beta_warning_and_feedback
 
 st.set_page_config(page_title="Monte Carlo Simulator", layout="wide")
 
@@ -60,88 +60,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Convexity Desk")
-st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+render_beta_warning_and_feedback()
 st.markdown("##### Monte Carlo PnL Simulator")
 st.markdown("Stress test your edge across 10,000 reshuffled realities.")
 
 # 1. SIDEBAR PARAMETERS
 with st.sidebar:
-    st.header("1. Generate Scenario")
+    st.header("1. Scenario Constraints")
     start_capital = st.number_input("Starting Capital ($)", value=100000, step=10000)
     
     st.markdown("---")
     last_trading_day = st.date_input("Last Trading Day", value=date.today())
     
     st.markdown("---")
-    win_rate = st.slider("Win Rate (%)", min_value=10, max_value=90, value=40, step=1)
-    avg_win = st.number_input("Average Win ($)", value=1000, step=100)
-    avg_loss = st.number_input("Average Loss ($)", value=500, step=100)
-    
-    if st.button("Regenerate 252-Day History", type="primary"):
-        new_pnl = generate_synthetic_pnl(win_rate, avg_win, avg_loss, 252)
-        st.session_state['df_pnl'] = pd.DataFrame({'Daily PnL ($)': new_pnl})
-
-    st.markdown("---")
     st.markdown("**Disclaimer:**")
     st.caption("For educational and demonstrational purposes only. Not financial advice. The simulations rely on static probabilities and do not reflect real market conditions or slippage.")
 
-# 2. STATE MANAGEMENT & UPLOADER
-with st.sidebar:
-    st.markdown("---")
-    st.header("Upload Real History")
-    uploaded_file = st.file_uploader("Upload CSV (Optional)", type=['csv'], help="CSV must contain a 'Daily PnL ($)' column, and optionally a 'Date' column.")
-    if uploaded_file:
-        try:
-            df_up = pd.read_csv(uploaded_file)
-            if 'Daily PnL ($)' in df_up.columns:
-                # Sanitize data to prevent NaN math errors if CSV has missing rows
-                df_up['Daily PnL ($)'] = pd.to_numeric(df_up['Daily PnL ($)'], errors='coerce').fillna(0.0)
-                st.session_state['df_pnl'] = df_up
-                if 'Date' in df_up.columns:
-                    st.session_state['start_date'] = pd.to_datetime(df_up['Date'].iloc[0]).date()
-                    st.session_state['end_date'] = pd.to_datetime(df_up['Date'].iloc[-1]).date()
-                else:
-                    st.session_state.pop('start_date', None)
-                    st.session_state.pop('end_date', None)
-            else:
-                st.sidebar.error("CSV must contain a 'Daily PnL ($)' column.")
-        except Exception as e:
-            st.sidebar.error(f"Error parsing CSV: {e}")
+init_global_state()
+render_master_ledger_control_panel(expanded=False)
 
-if 'df_pnl' not in st.session_state:
-    initial_pnl = generate_synthetic_pnl(40, 1000, 500, 252)
-    st.session_state['df_pnl'] = pd.DataFrame({'Daily PnL ($)': initial_pnl})
+master_df = st.session_state.master_ledger
+equity_df = master_df[master_df['Class'] == 'Equity'].copy()
+if equity_df.empty:
+    st.warning("⚠️ No physical equity positions found in Master Ledger. The Simulator is in Standby Mode.")
+    st.stop()
 
-# 3. MAIN UI LAYOUT
-with st.expander("📝 2. Edit Realized History (Click to expand)", expanded=False):
-    st.markdown("Type in a huge loss (e.g. -50000) to simulate a Black Swan.")
-    
-    # Convert flat array to a 2D grid (21 trading days x 12 months)
-    def array_to_grid(arr, rows=21):
-        n = len(arr)
-        cols = int(np.ceil(n / rows))
-        pad_len = rows * cols - n
-        padded = np.append(arr, [np.nan] * pad_len)
-        grid = padded.reshape((rows, cols), order='F')
-        df = pd.DataFrame(grid, columns=[f"Month {i+1}" if i < 12 else f"Block {i+1}" for i in range(cols)])
-        df.index = [f"Day {i+1}" for i in range(rows)]
-        return df, n
+traj_df = compute_daily_trajectory(equity_df)
+if traj_df.empty:
+    st.error("Error generating trajectory from Master Ledger.")
+    st.stop()
 
-    def grid_to_array(df, original_len):
-        flat = df.values.flatten(order='F')
-        return np.nan_to_num(flat[:original_len])
-
-    pnl_values = st.session_state['df_pnl']['Daily PnL ($)'].values
-    grid_df, orig_len = array_to_grid(pnl_values)
-
-    # Display the compact 2D grid
-    edited_grid = st.data_editor(grid_df, use_container_width=True, height=770) # Height tuned for 21 rows
-    st.markdown("*(Note: The grid is abstracted into 21-day trading months to provide a clean, scroll-free view of all 252 standard annual trading days).*")
+daily_pnl_array = traj_df['daily_pnl'].values
 
 st.subheader("3. Monte Carlo Analysis")
 
 # Run the Monte Carlo on the flattened edited array
-daily_pnl_array = grid_to_array(edited_grid, orig_len)
 cum_sim, max_dds, mc_avg_dd, mc_best_dd, mc_worst_dd, mc_avg_path = generate_mc_paths(daily_pnl_array)
 
 orig_cum = np.insert(np.cumsum(daily_pnl_array), 0, 0)
@@ -151,12 +104,9 @@ orig_dd = np.max(orig_peaks - orig_cum)
 best_idx = np.argmax(cum_sim[:, -1])
 worst_idx = np.argmin(cum_sim[:, -1])
 
-# Fetch SPY data and Calculate Advanced Metrics
+# Use SPY data from the Master Ledger trajectory
 num_days_in_grid = len(daily_pnl_array)
-if 'start_date' in st.session_state and 'end_date' in st.session_state:
-    spy_closes = get_spy_data(end_date=st.session_state['end_date'], num_days=num_days_in_grid, start_date=st.session_state['start_date'])
-else:
-    spy_closes = get_spy_data(last_trading_day, num_days=num_days_in_grid)
+spy_closes = traj_df['spy'].values
     
 metrics = calculate_advanced_metrics(daily_pnl_array, spy_closes, start_capital, risk_free_rate=0.04)
 

@@ -1,11 +1,117 @@
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import timedelta
+from datetime import timedelta, date
 import logging
+import streamlit as st
+import io
 
 # Suppress yfinance warnings
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+
+def render_beta_warning_and_feedback():
+    st.warning("⚠️ **Beta Development Phase:** This platform is currently under active development. While you are welcome to explore the sandbox and interact with the modules, please note that results and simulations are not yet reliable. If you still see this header next week, it means we are continuing to polish the engine. In the meantime, feel free to tinker and use the feedback box below to report bugs!")
+    with st.expander("📬 Beta Feedback / Bug Report", expanded=False):
+        feedback = st.text_area("Tell us what's broken or what you'd like to see:", placeholder="E.g. The trajectory chart looks static...")
+        if st.button("Submit Feedback"):
+            if feedback:
+                st.success("Thanks! Your feedback has been recorded.")
+            else:
+                st.error("Please enter some feedback before submitting.")
+
+def init_global_state():
+    """Initializes the Master Ledger in st.session_state if it doesn't exist."""
+    if 'master_ledger' not in st.session_state:
+        # Create Dummy Data
+        today = date.today()
+        d_250 = today - timedelta(days=250)
+        d_200 = today - timedelta(days=200)
+        d_150 = today - timedelta(days=150)
+        d_100 = today - timedelta(days=100)
+        d_50 = today - timedelta(days=50)
+        d_10 = today - timedelta(days=10)
+        
+        data = [
+            # Period 1 (d_250 to d_200): Aggressive (Avg Gear ~4)
+            {'Ticker': 'SPY', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_250, 'Entry Price': 676.99, 'Shares': 37, 'Stop Loss': 650.0, 'Exit Date': d_200, 'Exit Price': 690.28, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'AMZN', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_250, 'Entry Price': 227.35, 'Shares': 110, 'Stop Loss': 210.0, 'Exit Date': d_200, 'Exit Price': 208.72, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'NVDA', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_250, 'Entry Price': 180.77, 'Shares': 138, 'Stop Loss': 160.0, 'Exit Date': d_200, 'Exit Price': 189.81, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'GLD', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_250, 'Entry Price': 399.02, 'Shares': 63, 'Stop Loss': 380.0, 'Exit Date': d_200, 'Exit Price': 467.03, 'Strike': None, 'Expiry': ''},
+            
+            # Period 2 (d_200 to d_150): Defensive (Avg Gear ~2)
+            {'Ticker': 'QQQ', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_200, 'Entry Price': 612.87, 'Shares': 41, 'Stop Loss': 590.0, 'Exit Date': d_150, 'Exit Price': 557.67, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'GOOGL', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_200, 'Entry Price': 323.90, 'Shares': 77, 'Stop Loss': 300.0, 'Exit Date': d_150, 'Exit Price': 273.34, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'AMD', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_200, 'Entry Price': 216.00, 'Shares': 116, 'Stop Loss': 200.0, 'Exit Date': d_150, 'Exit Price': 196.04, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'TLT', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_200, 'Entry Price': 85.56, 'Shares': 292, 'Stop Loss': 80.0, 'Exit Date': d_150, 'Exit Price': 85.12, 'Strike': None, 'Expiry': ''},
+            
+            # Period 3 (d_150 to d_100): Balanced (Avg Gear ~3)
+            {'Ticker': 'AAPL', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_150, 'Entry Price': 246.19, 'Shares': 102, 'Stop Loss': 230.0, 'Exit Date': d_100, 'Exit Price': 298.71, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'META', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_150, 'Entry Price': 535.88, 'Shares': 47, 'Stop Loss': 500.0, 'Exit Date': d_100, 'Exit Price': 602.05, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'TSLA', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_150, 'Entry Price': 355.28, 'Shares': 70, 'Stop Loss': 330.0, 'Exit Date': d_100, 'Exit Price': 404.11, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'XLU', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_150, 'Entry Price': 45.63, 'Shares': 548, 'Stop Loss': 40.0, 'Exit Date': d_100, 'Exit Price': 44.06, 'Strike': None, 'Expiry': ''},
+            
+            # Period 4 (d_100 to d_50): Very Aggressive (Avg Gear ~5)
+            {'Ticker': 'MSFT', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_100, 'Entry Price': 415.74, 'Shares': 60, 'Stop Loss': 390.0, 'Exit Date': d_50, 'Exit Price': 382.62, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'NFLX', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_100, 'Entry Price': 89.33, 'Shares': 280, 'Stop Loss': 75.0, 'Exit Date': d_50, 'Exit Price': 75.59, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'PLTR', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_100, 'Entry Price': 135.26, 'Shares': 185, 'Stop Loss': 120.0, 'Exit Date': d_50, 'Exit Price': 132.22, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'SH', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_100, 'Entry Price': 33.51, 'Shares': 746, 'Stop Loss': 30.0, 'Exit Date': d_50, 'Exit Price': 33.11, 'Strike': None, 'Expiry': ''},
+            
+            # Period 5 (d_50 to now): Very Defensive (Avg Gear ~1)
+            {'Ticker': 'V', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_50, 'Entry Price': 346.89, 'Shares': 72, 'Stop Loss': 330.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'DIS', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_50, 'Entry Price': 96.70, 'Shares': 259, 'Stop Loss': 85.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
+            {'Ticker': 'IWM', 'Class': 'Option', 'Silo': 'C', 'Entry Date': d_50, 'Entry Price': 293.48, 'Shares': 85, 'Stop Loss': 280.00, 'Exit Date': None, 'Exit Price': None, 'Strike': 300, 'Expiry': (today + timedelta(days=30)).strftime('%Y-%m-%d')},
+            {'Ticker': 'QQQ', 'Class': 'Option', 'Silo': 'D', 'Entry Date': d_50, 'Entry Price': 711.44, 'Shares': -35, 'Stop Loss': 730.00, 'Exit Date': None, 'Exit Price': None, 'Strike': 700, 'Expiry': (today + timedelta(days=15)).strftime('%Y-%m-%d')}
+        ]
+        
+        df = pd.DataFrame(data)
+        st.session_state.master_ledger = df
+
+def render_master_ledger_control_panel(expanded=False):
+    """Renders the universal expander for manipulating the Master Ledger."""
+    with st.expander("🛠️ Edit Realized History (Master Ledger)", expanded=expanded):
+        st.markdown("Edit the table below directly, or upload your own CSV. Changes instantly propagate across all modules.")
+        
+        # 1. Editable DataFrame
+        edited_df = st.data_editor(
+            st.session_state.master_ledger, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            column_config={
+                "Class": st.column_config.SelectboxColumn("Class", options=["Equity", "Option"], required=True),
+                "Silo": st.column_config.SelectboxColumn("Silo", options=["A", "B", "C", "D"], required=True),
+                "Entry Date": st.column_config.DateColumn("Entry Date", format="YYYY-MM-DD"),
+                "Exit Date": st.column_config.DateColumn("Exit Date", format="YYYY-MM-DD")
+            }
+        )
+        
+        # Update Session State if user edited the table
+        if not edited_df.equals(st.session_state.master_ledger):
+            st.session_state.master_ledger = edited_df
+            st.rerun()
+            
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            # CSV Download
+            csv_data = st.session_state.master_ledger.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Sandbox Template (CSV)",
+                data=csv_data,
+                file_name="convexity_master_ledger_template.csv",
+                mime="text/csv"
+            )
+        with col2:
+            # CSV Upload
+            uploaded_file = st.file_uploader("Upload your Master Ledger (CSV)", type=["csv"], label_visibility="collapsed")
+            if uploaded_file is not None:
+                try:
+                    new_df = pd.read_csv(uploaded_file)
+                    st.session_state.master_ledger = new_df
+                    st.success("Master Ledger successfully overwritten!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error parsing CSV: {e}")
 
 def generate_synthetic_pnl(win_rate, avg_win, avg_loss, num_trades):
     """
@@ -133,3 +239,141 @@ def calculate_advanced_metrics(daily_pnl, spy_closes, start_capital, risk_free_r
         "spy_cumulative_return": ann_spy_return * 100,
         "spy_closes": spy_closes
     }
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def compute_daily_trajectory(df_input):
+    import yfinance as yf
+    import numpy as np
+    
+    tickers = df_input['Ticker'].unique().tolist()
+    if not tickers:
+        return pd.DataFrame()
+        
+    df_input = df_input.copy()
+    df_input['Entry Date'] = pd.to_datetime(df_input['Entry Date'])
+    start_date = df_input['Entry Date'].min()
+    if pd.isna(start_date):
+        start_date = date.today() - timedelta(days=365)
+        
+    end_date = date.today()
+    
+    # Download Benchmarks & Tickers (Fetch 75 days early for 50-day SMA)
+    fetch_start = start_date - timedelta(days=75)
+    all_tickers = tickers + ["SPY", "QQQ", "RSP"]
+    try:
+        hist_data = yf.download(all_tickers, start=fetch_start, end=end_date + timedelta(days=1), progress=False, auto_adjust=False)['Close']
+        if len(all_tickers) == 1:
+            hist_data = pd.DataFrame({all_tickers[0]: hist_data})
+    except Exception:
+        return pd.DataFrame()
+        
+    # Pre-compute Market Regime SMAs
+    hist_data['spy_sma20'] = hist_data['SPY'].rolling(window=20).mean()
+    hist_data['spy_sma50'] = hist_data['SPY'].rolling(window=50).mean()
+    hist_data['rsp_sma20'] = hist_data['RSP'].rolling(window=20).mean()
+    hist_data['rsp_sma50'] = hist_data['RSP'].rolling(window=50).mean()
+    
+    # Trim to actual start_date
+    hist_data = hist_data[hist_data.index.tz_localize(None) >= pd.to_datetime(start_date)].copy()
+    
+    # Build daily series
+    dates = hist_data.index.tz_localize(None)
+    res = pd.DataFrame({'date': dates})
+    
+    # Benchmarks
+    for b in ["SPY", "QQQ", "RSP"]:
+        if b in hist_data.columns:
+            res[b.lower()] = np.array(hist_data[b]).flatten()
+            res[b.lower()+'_cum'] = (res[b.lower()] / res[b.lower()].iloc[0]) - 1 if not res.empty and res[b.lower()].iloc[0] > 0 else 0
+        else:
+            res[b.lower()] = 0
+            res[b.lower()+'_cum'] = 0
+            
+    # Compute Daily PnL & Macro Regime
+    silo_a_pnl = np.zeros(len(dates))
+    silo_b_pnl = np.zeros(len(dates))
+    silo_c_pnl = np.zeros(len(dates))
+    silo_d_pnl = np.zeros(len(dates))
+    daily_alpha = np.zeros(len(dates))
+    
+    def get_trend_score(price, sma20, sma50):
+        if pd.isna(sma50) or pd.isna(sma20): return 0
+        score = 0
+        if price > sma50: score += 1
+        if price > sma20: score += 1
+        if sma20 > sma50: score += 1
+        return score
+    
+    for i, d in enumerate(dates):
+        # 1. Compute Macro Regime
+        spy = hist_data['SPY'].iloc[i] if not pd.isna(hist_data['SPY'].iloc[i]) else 0
+        rsp = hist_data['RSP'].iloc[i] if not pd.isna(hist_data['RSP'].iloc[i]) else 0
+        
+        spy_score = get_trend_score(spy, hist_data['spy_sma20'].iloc[i], hist_data['spy_sma50'].iloc[i])
+        rsp_score = get_trend_score(rsp, hist_data['rsp_sma20'].iloc[i], hist_data['rsp_sma50'].iloc[i])
+        
+        if spy_score == 3 and rsp_score == 3: alpha = 5
+        elif spy_score >= 2 and rsp_score >= 2: alpha = 3 if (spy_score == 2 and rsp_score == 2) else 4
+        elif spy_score >= 2 and rsp_score < 2: alpha = 2
+        elif spy_score < 2 and rsp_score >= 2: alpha = 1
+        else: alpha = 0
+        
+        daily_alpha[i] = alpha
+        
+        # 2. Compute Portfolio PnL
+        a_val, b_val, c_val, d_val = 0.0, 0.0, 0.0, 0.0
+        
+        for _, row in df_input.iterrows():
+            entry_dt = row['Entry Date']
+            exit_dt = pd.to_datetime(row['Exit Date']) if pd.notna(row['Exit Date']) and row['Exit Date'] != '' else pd.Timestamp('2099-01-01')
+            if d < entry_dt:
+                continue # Trade hasn't started yet
+                
+            ticker = row['Ticker']
+            shares = float(row['Shares'])
+            entry_price = float(row['Entry Price'])
+            
+            if entry_dt <= d <= exit_dt:
+                # Trade is Open: Calculate Unrealized PnL based on Spot Price
+                spot = entry_price
+                if ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
+                    spot = float(hist_data[ticker].iloc[i])
+                pnl = shares * (spot - entry_price)
+                
+            else:
+                # Trade is Closed: Calculate Realized PnL based on Exit Price
+                if pd.notna(row['Exit Price']) and row['Exit Price'] != '':
+                    exit_price = float(row['Exit Price'])
+                else:
+                    exit_price = entry_price # Fallback to 0 PnL if no exit price provided
+                pnl = shares * (exit_price - entry_price)
+                
+            if row['Silo'] == 'A': a_val += pnl
+            elif row['Silo'] == 'B': b_val += pnl
+            elif row['Silo'] == 'C': c_val += pnl
+            elif row['Silo'] == 'D': d_val += pnl
+                
+        silo_a_pnl[i] = a_val
+        silo_b_pnl[i] = b_val
+        silo_c_pnl[i] = c_val
+        silo_d_pnl[i] = d_val
+        
+    # We want daily DIFFERENCE for the bar charts
+    res['silo_a_pnl'] = np.diff(silo_a_pnl, prepend=0)
+    res['silo_b_pnl'] = np.diff(silo_b_pnl, prepend=0)
+    res['silo_c_pnl'] = np.diff(silo_c_pnl, prepend=0)
+    res['silo_d_pnl'] = np.diff(silo_d_pnl, prepend=0)
+    
+    res['daily_pnl'] = res['silo_a_pnl'] + res['silo_b_pnl'] + res['silo_c_pnl'] + res['silo_d_pnl']
+    res['cum_pnl'] = res['daily_pnl'].cumsum()
+    
+    # Normalize cumulative PnL so it starts at 0 with benchmarks
+    if not res.empty:
+        res['cum_pnl'] = res['cum_pnl'] - res['cum_pnl'].iloc[0]
+    
+    res['alpha_gear'] = daily_alpha
+    
+    spy_returns = res['spy'].pct_change().fillna(0)
+    res['opt_dir'] = np.where(res['spy'] > hist_data['spy_sma50'].values, 'Bull', 'Bear')
+    
+    return res

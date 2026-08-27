@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 import time
+from public_core_math import render_beta_warning_and_feedback
 import io
 
-st.set_page_config(page_title="Accountability Journal & Pipeline | Convexity Desk", layout="wide")
+st.set_page_config(page_title="Physical Equity Journal", layout="wide")
 
 st.markdown("""
     <style>
@@ -25,7 +26,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+render_beta_warning_and_feedback()
 
 # Mock Broker Sync Buttons
 c1, c2 = st.columns([1, 1])

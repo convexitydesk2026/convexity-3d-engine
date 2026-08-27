@@ -46,7 +46,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+st.title("Convexity Desk")
+
+st.markdown("##### 3D Options Topography & Gamma Cliffs")
 
 # ==========================================
 # 2. CORE QUANTITATIVE MATH (BLACK-SCHOLES)
@@ -93,22 +95,29 @@ def get_live_market_data(ticker="SPY"):
     except:
         return 550.0, 15.0
 
-def load_portfolio_data(file_or_path):
-    try:
-        df = pd.read_csv(file_or_path)
-        df['CloseDate'] = pd.to_datetime(df['CloseDate'])
-        df['EntryDate'] = pd.to_datetime(df['EntryDate'])
-        df['DaysHeld'] = (df['CloseDate'] - df['EntryDate']).dt.days
-        df['ROC'] = (df['RealizedPnL'] / df['CapitalAtRisk']) * 100
-        return df
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return None
+import sys
+from pathlib import Path
+from scipy.interpolate import griddata
+import time
+sys.path.append(str(Path(__file__).parent.parent))
+from public_core_math import init_global_state, render_master_ledger_control_panel, render_beta_warning_and_feedback
+
+# Initialize Global State & Render UI Panel
+init_global_state()
+render_master_ledger_control_panel()
+render_beta_warning_and_feedback()
+
+# Filter Master Ledger for active options
+master_df = st.session_state.master_ledger
+options_df = master_df[(master_df['Class'] == 'Option') & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
+
+if options_df.empty:
+    st.warning("⚠️ No active options positions detected in your Master Ledger. The 3D Engine is currently in standby. To explore this tool's capabilities, please add options trades to your CSV, or clear your upload from the sidebar to reload the full Sandbox Dummy Portfolio.")
+    st.stop()
 
 # ==========================================
 # 3. SESSION STATE 
 # ==========================================
-if 'portfolio_df' not in st.session_state: st.session_state.portfolio_df = None
 
 if 'trade_params' not in st.session_state:
     init_spot, init_vix = get_live_market_data("SPY")
@@ -176,17 +185,7 @@ with st.sidebar:
             }
             st.rerun()
 
-    st.markdown("---")
-    with st.expander("📊 Portfolio Analysis", expanded=True):
-        uploaded_file = st.file_uploader("Upload Flex Query (CSV)", type="csv")
-        if uploaded_file is not None:
-            st.session_state.portfolio_df = load_portfolio_data(uploaded_file)
-            st.rerun()
-            
-        st.markdown("<div style='text-align: center; margin-bottom: 10px; font-size: 14px;'>Or explore our live demo data:</div>", unsafe_allow_html=True)
-        if st.button("Load Golden Path Demo", type="primary", use_container_width=True):
-            st.session_state.portfolio_df = load_portfolio_data("demo_portfolio.csv")
-            st.rerun()
+
 
 # ==========================================
 # 5. MAIN UI & INTERACTIVE SLIDERS
@@ -580,21 +579,28 @@ with tab1:
 with tab2:
     st.markdown("---")
     st.markdown("### 📊 The Mathematical Edge: Closed Trade Expectancy")
-    st.markdown("This dashboard represents real-world performance of the Volatility Risk Premium (VRP) strategy.")
+    st.markdown("This dashboard represents real-world performance of the Volatility Risk Premium (VRP) strategy based on closed options in your Master Ledger.")
     
-    df = st.session_state.portfolio_df
+    master_df = st.session_state.master_ledger
+    closed_options = master_df[(master_df['Class'] == 'Option') & master_df['Exit Price'].notna() & (master_df['Exit Price'] != '')].copy()
     
-    if df is not None and not df.empty:
-        wins = df[df['RealizedPnL'] > 0]
-        losses = df[df['RealizedPnL'] <= 0]
+    if not closed_options.empty:
+        closed_options['CloseDate'] = pd.to_datetime(closed_options['Exit Date'])
+        closed_options['EntryDate'] = pd.to_datetime(closed_options['Entry Date'])
+        closed_options['RealizedPnL'] = closed_options['Shares'].astype(float) * 100 * (closed_options['Exit Price'].astype(float) - closed_options['Entry Price'].astype(float))
+        closed_options['CapitalAtRisk'] = abs(closed_options['Shares'].astype(float) * 100 * (closed_options['Stop Loss'].astype(float) - closed_options['Entry Price'].astype(float)))
+        closed_options['ROC'] = (closed_options['RealizedPnL'] / closed_options['CapitalAtRisk']) * 100
         
-        win_rate = (len(wins) / len(df)) * 100 if len(df) > 0 else 0
+        wins = closed_options[closed_options['RealizedPnL'] > 0]
+        losses = closed_options[closed_options['RealizedPnL'] <= 0]
+        
+        win_rate = (len(wins) / len(closed_options)) * 100 if len(closed_options) > 0 else 0
         avg_win = wins['RealizedPnL'].mean() if len(wins) > 0 else 0
         avg_loss = losses['RealizedPnL'].mean() if len(losses) > 0 else 0
         gross_profit = wins['RealizedPnL'].sum()
         gross_loss = abs(losses['RealizedPnL'].sum())
         profit_factor = gross_profit / gross_loss if gross_loss != 0 else float('inf')
-        math_expectancy = df['RealizedPnL'].mean() if len(df) > 0 else 0
+        math_expectancy = closed_options['RealizedPnL'].mean() if len(closed_options) > 0 else 0
         
         col_e1, col_e2, col_e3, col_e4 = st.columns(4)
         col_e1.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>WIN RATE</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>{win_rate:.1f}%</span></div>", unsafe_allow_html=True)
@@ -603,21 +609,21 @@ with tab2:
         col_e4.markdown(f"<div class='info-box' style='text-align:center; border-bottom: 3px solid #16a34a;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>MATH EXPECTANCY ⓘ</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>${math_expectancy:,.2f}</span></div>", unsafe_allow_html=True)
         
         fig_exp = go.Figure(go.Scatter(
-            x=df['CloseDate'], y=df['ROC'], mode='markers',
-            text=df.apply(lambda row: f"Symbol: {row['Symbol']}<br>PnL: ${row['RealizedPnL']:.2f}<br>Days Held: {row['DaysHeld']}", axis=1),
-            hoverinfo="text",
+            x=closed_options['CloseDate'], y=closed_options['ROC'], mode='markers',
+            text=closed_options['RealizedPnL'],
+            hovertemplate="<b>Date:</b> %{x|%Y-%m-%d}<br><b>ROC:</b> %{y:.1f}%<br><b>PnL:</b> $%{text:.0f}<extra></extra>",
             marker=dict(
-                size=df['RealizedPnL'].abs(), sizemode='area', sizeref=2.*max(df['RealizedPnL'].abs())/(40.**2), sizemin=8,
-                color=df['DaysHeld'], colorscale='RdYlBu', showscale=True, colorbar=dict(title="Holding Time (Days)"),
-                line=dict(width=1.5, color='black')
+                size=np.minimum(np.abs(closed_options['RealizedPnL']) / 10, 50) + 10,
+                color=np.where(closed_options['RealizedPnL'] > 0, '#22c55e', '#ef4444'),
+                opacity=0.7, line=dict(width=1, color='white')
             )
         ))
         fig_exp.add_hline(y=0, line_color="black", line_width=2)
-        fig_exp.update_layout(title="Behavioral Bubble Chart (Size = Abs PnL | Color = Days in Trade)", yaxis_title="Return on Capital (ROC) %", height=400, plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=40, b=0))
+        fig_exp.update_layout(title="Behavioral Bubble Chart (Size = Abs PnL | Color = Win/Loss)", yaxis_title="Return on Capital (ROC) %", height=400, plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=40, b=0))
         st.plotly_chart(fig_exp, width="stretch")
         
     else:
-        st.info("👈 Please load the Golden Path Demo Data or upload a Flex Query from the sidebar to view portfolio performance.")
+        st.info("No closed Option trades found in your Master Ledger. Add some completed option trades with Exit Prices to visualize your expectancy and ROC metrics.")
         
     st.markdown("---")
     col_edu1, col_edu2 = st.columns(2)

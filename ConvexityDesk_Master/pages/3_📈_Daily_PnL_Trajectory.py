@@ -27,90 +27,32 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+
 
 st.title("Daily PnL Trajectory")
 st.markdown("Replicate and analyze institutional equity curve trajectories.")
 
-st.markdown("---")
-st.markdown("### Upload Custom Portfolio CSV")
-st.markdown("To visualize your own trajectory, upload a CSV matching the exact columns of the dummy template below. If no file is uploaded, the app will generate 1 year of synthetic dummy data.")
-uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
-st.markdown("---")
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from public_core_math import init_global_state, render_master_ledger_control_panel, compute_daily_trajectory, render_beta_warning_and_feedback
 
-@st.cache_data(ttl=3600)
+# Initialize Global State & Render UI Panel
+init_global_state()
+render_master_ledger_control_panel(expanded=True)
+render_beta_warning_and_feedback()
 
-def generate_dummy_data():
-    # Download 252 days of benchmark data
-    end_date = datetime.date.today()
-    start_date = end_date - datetime.timedelta(days=365)
-    
-    spy = yf.download("SPY", start=start_date, end=end_date, progress=False)['Close']
-    qqq = yf.download("QQQ", start=start_date, end=end_date, progress=False)['Close']
-    rsp = yf.download("RSP", start=start_date, end=end_date, progress=False)['Close']
-    
-    # Align dates and flatten arrays to fix yfinance 2D array bug
-    df = pd.DataFrame({'date': spy.index, 'spy': np.array(spy).flatten(), 'qqq': np.array(qqq).flatten(), 'rsp': np.array(rsp).flatten()})
-    df['spy_cum'] = (df['spy'] / df['spy'].iloc[0]) - 1
-    df['qqq_cum'] = (df['qqq'] / df['qqq'].iloc[0]) - 1
-    df['rsp_cum'] = (df['rsp'] / df['rsp'].iloc[0]) - 1
-    
-    # Generate Dummy Silo PnL
-    np.random.seed(42)
-    days = len(df)
-    
-    # Silo A (Conservative, steady positive drift)
-    df['silo_a_pnl'] = np.random.normal(loc=150, scale=300, size=days)
-    
-    # Silo C (Aggressive, higher volatility)
-    df['silo_c_pnl'] = np.random.normal(loc=250, scale=800, size=days)
-    
-    # Silo D (Hedge, slightly negative drift but spikes on down days)
-    df['silo_d_pnl'] = np.random.normal(loc=-50, scale=200, size=days)
-    # Add artificial spikes when SPY drops
-    spy_returns = df['spy'].pct_change().fillna(0)
-    df.loc[spy_returns < -0.01, 'silo_d_pnl'] += np.random.uniform(1000, 3000, size=(spy_returns < -0.01).sum())
+master_df = st.session_state.master_ledger
+equity_df = master_df[master_df['Class'] == 'Equity'].copy()
 
-    df['daily_pnl'] = df['silo_a_pnl'] + df['silo_c_pnl'] + df['silo_d_pnl']
-    df['cum_pnl'] = df['daily_pnl'].cumsum()
-    
-    # Generate Dummy Alpha Gear & Options Trend
-    df['alpha_gear'] = np.random.choice([0, 1, 2, 3, 4, 5], size=days, p=[0.05, 0.1, 0.15, 0.2, 0.3, 0.2])
-    # Smooth the gear somewhat so it's not jumping every day
-    df['alpha_gear'] = df['alpha_gear'].rolling(window=5, min_periods=1).median().astype(int)
-    
-    df['opt_dir'] = np.where(spy_returns > 0, 'Bull', 'Bear')
-    
-    return df
+if equity_df.empty:
+    st.warning("⚠️ No physical equity positions found in Master Ledger. The PnL Trajectory is in Standby Mode.")
+    st.stop()
 
-if uploaded_file is not None:
-    # Process uploaded CSV
-    df = pd.read_csv(uploaded_file)
-    df['date'] = pd.to_datetime(df['Date'])
-    df['silo_a_pnl'] = df.get('Silo A Daily PnL', 0)
-    df['silo_c_pnl'] = df.get('Silo C Daily PnL', 0)
-    df['silo_d_pnl'] = df.get('Silo D Daily PnL', 0)
-    df['alpha_gear'] = df.get('Alpha Gear (0-5)', 0)
-    df['opt_dir'] = df.get('Options Trend', 'Bull')
-    
-    df['daily_pnl'] = df['silo_a_pnl'] + df['silo_c_pnl'] + df['silo_d_pnl']
-    df['cum_pnl'] = df['daily_pnl'].cumsum()
-    
-    # We must fetch benchmarks for the date range provided in the CSV
-    start_date = df['date'].min()
-    end_date = df['date'].max()
-    spy = yf.download("SPY", start=start_date, end=end_date + datetime.timedelta(days=1), progress=False)['Close']
-    qqq = yf.download("QQQ", start=start_date, end=end_date + datetime.timedelta(days=1), progress=False)['Close']
-    rsp = yf.download("RSP", start=start_date, end=end_date + datetime.timedelta(days=1), progress=False)['Close']
-    
-    bench_df = pd.DataFrame({'date': spy.index.tz_localize(None), 'spy': np.array(spy).flatten(), 'qqq': np.array(qqq).flatten(), 'rsp': np.array(rsp).flatten()})
-    
-    df = pd.merge_asof(df.sort_values('date'), bench_df.sort_values('date'), on='date')
-    df['spy_cum'] = (df['spy'] / df['spy'].iloc[0]) - 1
-    df['qqq_cum'] = (df['qqq'] / df['qqq'].iloc[0]) - 1
-    df['rsp_cum'] = (df['rsp'] / df['rsp'].iloc[0]) - 1
-else:
-    df = generate_dummy_data()
+df = compute_daily_trajectory(equity_df)
+if df.empty:
+    st.error("Error generating trajectory. Ensure valid stock tickers.")
+    st.stop()
 
 # Calculate scaling for USD lines (Assume starting NAV of $100k)
 initial_nav = 100000
@@ -125,10 +67,15 @@ privacy_mode = False
 fig_pnl = go.Figure()
 
 if not privacy_mode:
-    # Add Silo Bars
-    fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_d_pnl'], name='Silo D', marker_color='#c084fc'))
-    fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_a_pnl'], name='Silo A', marker_color='#60a5fa'))
-    fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_c_pnl'], name='Silo C', marker_color='#4ade80'))
+    # Add Silo Bars dynamically based on presence of data
+    if (df['silo_d_pnl'] != 0).any():
+        fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_d_pnl'], name='Silo D', marker_color='#c084fc'))
+    if (df['silo_a_pnl'] != 0).any():
+        fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_a_pnl'], name='Silo A', marker_color='#60a5fa'))
+    if (df['silo_b_pnl'] != 0).any():
+        fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_b_pnl'], name='Silo B', marker_color='#fb923c'))
+    if (df['silo_c_pnl'] != 0).any():
+        fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_c_pnl'], name='Silo C', marker_color='#4ade80'))
     
     # Add Cumulative Lines
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_pnl'], name='Portfolio (Cum PnL USD)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
@@ -198,14 +145,4 @@ fig_pnl.update_layout(
 
 st.plotly_chart(fig_pnl, use_container_width=True)
 
-st.markdown("---")
-st.markdown("### Dummy Data Ledger Template")
-st.markdown("This is the exact CSV schema required to render the chart above. You can download this template, replace it with your own historical PnL, and upload it at the top of the page.")
 
-display_df = df[['date', 'silo_a_pnl', 'silo_c_pnl', 'silo_d_pnl', 'alpha_gear', 'opt_dir']].copy()
-display_df['date'] = display_df['date'].dt.strftime('%Y-%m-%d')
-display_df = display_df.rename(columns={
-    'date': 'Date', 'silo_a_pnl': 'Silo A Daily PnL', 'silo_c_pnl': 'Silo C Daily PnL',
-    'silo_d_pnl': 'Silo D Daily PnL', 'alpha_gear': 'Alpha Gear (0-5)', 'opt_dir': 'Options Trend'
-})
-st.dataframe(display_df.tail(10), use_container_width=True)

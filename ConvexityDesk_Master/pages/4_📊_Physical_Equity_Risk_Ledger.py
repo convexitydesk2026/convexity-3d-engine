@@ -26,87 +26,104 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+
 
 st.title("Physical Equity Risk Ledger")
 st.markdown("Track absolute notional risk, cost basis, and trailing stop values across all physical equity positions.")
 
-# --- Generate Dummy Data matching the screenshot ---
-@st.cache_data
-def get_dummy_alpha_data():
-    data = [
-        {
-            'Ticker': 'GLD',
-            'Global Portfolio %': 2.55,
-            'Earnings': 'N/A',
-            'Shares': 58,
-            'Spot Price': 427.34,
-            'Market Value': 24786,
-            'Cost': 24542,
-            'Avg SL': 412.00,
-            '20 SMA': 398.18,
-            '50 SMA': 384.67,
-            'Open Risk': -662,
-            'Locked Profit': 0,
-            'Unlocked Profit': 244,
-            'Total Profit': 244,
-            'Live R-Mult': 0.25,
-            'Days Active': 0,
-            'Total SL Value': 412.00 * 58
-        },
-        {
-            'Ticker': 'RCUS',
-            'Global Portfolio %': 1.69,
-            'Earnings': 'Oct 27 (63d)',
-            'Shares': 520,
-            'Spot Price': 31.57,
-            'Market Value': 16416,
-            'Cost': 16325,
-            'Avg SL': 29.60,
-            '20 SMA': 28.98,
-            '50 SMA': 28.62,
-            'Open Risk': -984,
-            'Locked Profit': 0,
-            'Unlocked Profit': 92,
-            'Total Profit': 92,
-            'Live R-Mult': 0.09,
-            'Days Active': 0,
-            'Total SL Value': 29.60 * 520
-        },
-        {
-            'Ticker': 'BMNR',
-            'Global Portfolio %': 1.28,
-            'Earnings': 'Jul 15 (-41d)',
-            'Shares': 508,
-            'Spot Price': 24.58,
-            'Market Value': 12487,
-            'Cost': 11933,
-            'Avg SL': 22.90,
-            '20 SMA': 19.20,
-            '50 SMA': 16.98,
-            'Open Risk': -362,
-            'Locked Profit': 0,
-            'Unlocked Profit': 554,
-            'Total Profit': 554,
-            'Live R-Mult': 0.57,
-            'Days Active': 0,
-            'Total SL Value': 22.90 * 508
-        }
-    ]
-    return pd.DataFrame(data)
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from public_core_math import init_global_state, render_master_ledger_control_panel, render_beta_warning_and_feedback
+import yfinance as yf
 
-df_alpha = get_dummy_alpha_data()
+# Initialize Global State & Render UI Panel
+init_global_state()
+render_master_ledger_control_panel()
+render_beta_warning_and_feedback()
 
-st.markdown("---")
-st.markdown("### Upload Custom Portfolio CSV")
-st.markdown("To visualize your own active equities, upload a CSV matching the exact columns of the table below.")
-uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
+# Filter Master Ledger for active physical equities (no exit date/price)
+master_df = st.session_state.master_ledger
+equity_df = master_df[(master_df['Class'] == 'Equity') & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
 
-if uploaded_file is not None:
+if equity_df.empty:
+    st.warning("⚠️ No active physical equity positions found in Master Ledger. The Risk Ledger is in Standby Mode.")
+    st.stop()
+
+# Build the Alpha Dataframe dynamically from Master Ledger
+@st.cache_data(ttl=3600)
+def compute_live_ledger(df_input):
+    tickers = df_input['Ticker'].unique().tolist()
+    if not tickers:
+        return pd.DataFrame()
+        
     try:
-        df_alpha = pd.read_csv(uploaded_file)
-    except Exception as e:
-        st.error(f"Error parsing CSV: {e}")
+        hist_data = yf.download(tickers, period="60d", progress=False, auto_adjust=False)['Close']
+        if len(tickers) == 1:
+            hist_data = pd.DataFrame({tickers[0]: hist_data})
+    except Exception:
+        hist_data = pd.DataFrame()
+        
+    data = []
+    for _, row in df_input.iterrows():
+        ticker = row['Ticker']
+        shares = float(row['Shares'])
+        entry = float(row['Entry Price'])
+        sl = float(row['Stop Loss']) if pd.notna(row['Stop Loss']) else 0.0
+        
+        spot = entry # Default
+        sma20, sma50 = entry, entry
+        if not hist_data.empty and ticker in hist_data.columns:
+            series = hist_data[ticker].dropna()
+            if not series.empty:
+                spot = float(series.iloc[-1])
+                sma20 = float(series.rolling(20).mean().iloc[-1]) if len(series) >= 20 else spot
+                sma50 = float(series.rolling(50).mean().iloc[-1]) if len(series) >= 50 else spot
+                
+        cost = shares * entry
+        mkt_val = shares * spot
+        total_sl = shares * sl
+        open_risk = total_sl - cost if sl > 0 else -cost
+        unlocked_profit = mkt_val - cost
+        
+        r_mult = 0.0
+        if open_risk < 0:
+            r_mult = unlocked_profit / abs(open_risk)
+            
+        # Entry date days active
+        try:
+            entry_dt = pd.to_datetime(row['Entry Date']).date()
+            days_active = (datetime.date.today() - entry_dt).days
+        except:
+            days_active = 0
+
+        data.append({
+            'Ticker': ticker,
+            'Global Portfolio %': 0.0, # Will compute below
+            'Earnings': 'N/A',
+            'Shares': shares,
+            'Spot Price': spot,
+            'Market Value': mkt_val,
+            'Cost': cost,
+            'Avg SL': sl,
+            '20 SMA': sma20,
+            '50 SMA': sma50,
+            'Open Risk': open_risk,
+            'Locked Profit': 0,
+            'Unlocked Profit': unlocked_profit,
+            'Total Profit': unlocked_profit,
+            'Live R-Mult': r_mult,
+            'Days Active': days_active,
+            'Total SL Value': total_sl
+        })
+        
+    res_df = pd.DataFrame(data)
+    if not res_df.empty:
+        global_nav = 1000000 # Dummy global NAV
+        res_df['Global Portfolio %'] = (res_df['Market Value'] / global_nav) * 100
+    return res_df
+
+df_alpha = compute_live_ledger(equity_df)
 st.markdown("---")
 global_nav = 972000  # Approximated from 2.55% of 24.7k
 

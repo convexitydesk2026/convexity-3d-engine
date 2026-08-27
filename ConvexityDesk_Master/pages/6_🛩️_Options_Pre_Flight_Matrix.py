@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+from public_core_math import render_beta_warning_and_feedback
 import numpy as np
 import datetime
 
@@ -26,7 +27,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.warning("⚠️ Website under development. Do not rely on the results. Come back in one week. If you still see this header it means we are NOT yet ready for public use.")
+render_beta_warning_and_feedback()
 
 st.title("Options Governor & Pre-Flight Matrix")
 st.markdown("This module polls live market data to mechanically enforce risk parameters across all options strategies.")
