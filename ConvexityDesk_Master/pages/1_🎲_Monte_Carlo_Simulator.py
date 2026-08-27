@@ -65,7 +65,7 @@ st.title("Convexity Desk")
 st.markdown("##### 🎲 Monte Carlo PnL Simulator")
 st.markdown("Stress test your edge across 10,000 reshuffled realities.")
 
-st.info("💡 **Data Provenance:** This simulator dynamically draws its trade parameters (Win Rate, Average Win, Average Loss) directly from the positions you configure in the **Physical Equity Risk Ledger** module. Navigate there to edit the inputs!")
+st.info("💡 **Data Provenance:** This simulator dynamically draws its trade parameters (Win Rate, Average Win, Average Loss) directly from the positions you configure in the **[Physical Equity Risk Ledger](/Physical_Equity_Risk_Ledger)** module. Navigate there to edit the inputs!")
 
 # 1. SIDEBAR PARAMETERS
 with st.sidebar:
