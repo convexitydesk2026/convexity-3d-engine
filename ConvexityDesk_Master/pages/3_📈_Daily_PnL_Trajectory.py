@@ -144,6 +144,11 @@ fig_pnl.update_layout(
 
 st.plotly_chart(fig_pnl, use_container_width=True)
 
-
+st.markdown("""
+<div style='font-size: 12px; color: #64748b; margin-top: -15px; margin-bottom: 20px; text-align: center;'>
+    <b>Legend:</b> The numbered squares represent the <b>Alpha Engine (Regime Gear 0-5)</b>, determining aggressive vs. defensive posture. 
+    The colored circles underneath represent the <b>Options Engine</b> trend (Green = Bullish, Red = Bearish Volatility Structure).
+</div>
+""", unsafe_allow_html=True)
 
 render_page_footer("The Daily PnL Trajectory engine overlays your realized PnL curve on top of the Alpha Engine's regime shifts. It exposes exactly how your portfolio scales (or fails) in distinct market environments.")
