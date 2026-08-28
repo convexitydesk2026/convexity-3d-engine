@@ -1,18 +1,18 @@
-Silo,Class,Strategy,Ticker,Entry Date,Exit Date,Shares,Entry Price,Exit Price
-A,Equity,Buy & Hold,SPY,2025-08-28,2026-07-15,82.63,648.92,754.81
-A,Equity,Buy & Hold,QQQ,2026-07-16,,10.0,705.94,
-A,Equity,Buy & Hold,DIA,2026-08-01,,15.0,524.32,
-B,Equity,Swing,NVDA,2025-08-28,2026-07-15,293.84,180.17,212.5
-B,Equity,Swing,TSLA,2026-07-16,,25.0,391.06,
-B,Equity,Swing,META,2026-08-01,,10.0,556.71,
-C,Equity,Momentum,MSTR,2025-08-28,2026-07-15,-41.43,338.84,97.47
-C,Equity,Momentum,COIN,2026-07-16,,40.0,160.49,
-C,Equity,Momentum,RIOT,2026-08-01,,200.0,20.17,
-D,Options,Iron Condor,SPY,2025-08-28,2026-07-15,10.0,2.0,10.25
-D,Options,Iron Condor,SPY,2026-07-20,,10.0,1.5,
-D,Options,Bull Put Spread,QQQ,2026-07-25,,5.0,2.1,
-D,Options,Bear Call Spread,AAPL,2026-08-05,,15.0,1.2,
-D,Options,Calendar Spread,MSFT,2026-08-10,,5.0,3.5,
-D,Options,Tail Hedge,SPY,2026-08-15,,50.0,0.4,
-D,Equity,Hedge,SPY,2026-07-16,,10.0,750.72,
-D,Equity,Hedge,QQQ,2026-08-01,,10.0,687.99,
+Silo,Class,Strategy,Ticker,Entry Date,Exit Date,Shares,Entry Price,Exit Price,Stop Loss,Strike,Expiry,Short Put,Long Put,Short Call,Long Call
+A,Equity,Buy & Hold,SPY,2025-08-28,2026-07-15,82.63,648.92,754.81,,,2026-09-18,,,,
+A,Equity,Buy & Hold,QQQ,2026-07-16,,10.0,705.94,,,,2026-09-18,,,,
+A,Equity,Buy & Hold,DIA,2026-08-01,,15.0,524.32,,,,2026-09-18,,,,
+B,Equity,Swing,NVDA,2025-08-28,2026-07-15,293.84,180.17,212.5,,,2026-09-18,,,,
+B,Equity,Swing,TSLA,2026-07-16,,25.0,391.06,,,,2026-09-18,,,,
+B,Equity,Swing,META,2026-08-01,,10.0,556.71,,,,2026-09-18,,,,
+C,Equity,Momentum,MSTR,2025-08-28,2026-07-15,-41.43,338.84,97.47,,,2026-09-18,,,,
+C,Equity,Momentum,COIN,2026-07-16,,40.0,160.49,,,,2026-09-18,,,,
+C,Equity,Momentum,RIOT,2026-08-01,,200.0,20.17,,,,2026-09-18,,,,
+D,Options,Iron Condor,SPY,2025-08-28,2026-07-15,10.0,2.0,10.25,,,2026-09-18,420.0,410.0,460.0,470.0
+D,Options,Iron Condor,SPY,2026-07-20,,10.0,1.5,,,,2026-09-18,420.0,410.0,460.0,470.0
+D,Options,Bull Put Spread,QQQ,2026-07-25,,5.0,2.1,,,,2026-09-18,350.0,340.0,,
+D,Options,Bear Call Spread,AAPL,2026-08-05,,15.0,1.2,,,,2026-09-18,,,210.0,220.0
+D,Options,Calendar Spread,MSFT,2026-08-10,,5.0,3.5,,,,2026-09-18,,,350.0,350.0
+D,Options,Tail Hedge,SPY,2026-08-15,,50.0,0.4,,,,2026-09-18,,380.0,,
+D,Equity,Hedge,SPY,2026-07-16,,10.0,750.72,,,,2026-09-18,,,,
+D,Equity,Hedge,QQQ,2026-08-01,,10.0,687.99,,,,2026-09-18,,,,
