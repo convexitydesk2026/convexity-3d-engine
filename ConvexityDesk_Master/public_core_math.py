@@ -30,28 +30,59 @@ def render_global_sidebar():
     with st.sidebar:
         st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
         st.caption("[📖 Read the mathematical methodology here](https://convexitydesk.com/)")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            hwm = st.number_input("Peak HWM ($)", value=100000, step=1000, min_value=1)
+        with c2:
+            nav = st.number_input("Current NAV ($)", value=100000, step=1000)
+            
+        dd_pct = (nav - hwm) / hwm
+        if dd_pct > 0:
+            dd_pct = 0.0 
+            
+        if dd_pct >= -0.05:
+            tier_name = "Tier 1 (Peak)"
+            tier_color = "#16a34a" 
+            multiplier = 1.0
+        elif dd_pct >= -0.10:
+            tier_name = "Tier 2 (Defensive)"
+            tier_color = "#d97706" 
+            multiplier = 0.5
+        elif dd_pct >= -0.15:
+            tier_name = "Tier 3 (Preservation)"
+            tier_color = "#ea580c" 
+            multiplier = 0.25
+        else:
+            tier_name = "Tier 4 (Hard Stop)"
+            tier_color = "#dc2626" 
+            multiplier = 0.0
+            
+        base_capacity = 20000 
+        remaining_capacity = base_capacity * multiplier
+
         st.markdown(
-            "<div style='background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;'>"
-            "<p style='font-size: 11px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>TIERED DRAWDOWN GOVERNOR</p>"
-            "<h2 style='color: #16a34a; margin-top: 0px; margin-bottom: 5px;'>Tier 1 (Peak) (1.0x)</h2>"
-            "<p style='font-size: 12px; color: #475569; margin-bottom: 15px;'>HWM: $1,050,000 | Current Drawdown: -0.00%</p>"
-            "<div style='display: flex; justify-content: space-between;'>"
-            "<div>"
-            "<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>MAX CAPACITY</p>"
-            "<p style='font-size: 16px; font-weight: bold; color: #3b82f6; margin-top: 0px;'>$20,000</p>"
-            "</div>"
-            "<div style='text-align: right;'>"
-            "<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>REMAINING</p>"
-            "<p style='font-size: 16px; font-weight: bold; color: #16a34a; margin-top: 0px;'>$20,000</p>"
-            "</div>"
-            "</div>"
-            "</div>", 
+            f"<div style='background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;'>"
+            f"<p style='font-size: 11px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>TIERED DRAWDOWN GOVERNOR</p>"
+            f"<h2 style='color: {tier_color}; margin-top: 0px; margin-bottom: 5px;'>{tier_name} ({multiplier}x)</h2>"
+            f"<p style='font-size: 12px; color: #475569; margin-bottom: 15px;'>HWM: ${hwm:,.0f} | Current Drawdown: {dd_pct*100:.2f}%</p>"
+            f"<div style='display: flex; justify-content: space-between;'>"
+            f"<div>"
+            f"<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>BASE CAPACITY</p>"
+            f"<p style='font-size: 16px; font-weight: bold; color: #3b82f6; margin-top: 0px;'>${base_capacity:,.0f}</p>"
+            f"</div>"
+            f"<div style='text-align: right;'>"
+            f"<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>REMAINING CAPACITY</p>"
+            f"<p style='font-size: 16px; font-weight: bold; color: {tier_color}; margin-top: 0px;'>${remaining_capacity:,.0f}</p>"
+            f"</div>"
+            f"</div>"
+            f"</div>", 
             unsafe_allow_html=True
         )
         
         with st.expander("Position Sizing Engine", expanded=False):
             st.selectbox("Target Silo", ["Silo A (Core)", "Silo B (High Beta)", "Silo C (Mega-Cap)", "Silo D (Speculative)"])
-            st.markdown("<p style='font-size: 12px; color: #64748b;'>Silo NAV: <b>$25,000</b><br>Uninvested Cash: <b>$10,000</b></p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size: 12px; color: #64748b;'>Silo NAV: <b>${nav/4:,.0f}</b> (Assumed equal split)<br>Uninvested Cash: <b>${(nav/4)*0.2:,.0f}</b></p>", unsafe_allow_html=True)
             
             st.checkbox("Flag as IPO / Unproven Asset")
             
@@ -62,16 +93,26 @@ def render_global_sidebar():
             
             col1, col2 = st.columns(2)
             with col1:
-                st.number_input("Risk %", value=0.200, step=0.01)
+                base_risk = st.number_input("Base Risk %", value=0.200, step=0.01)
             with col2:
                 st.selectbox("Direction", ["Long", "Short"])
                 
             st.selectbox("Asset Currency", ["USD"])
-            st.number_input("Entry Price (USD)", value=0.00, step=1.0)
-            st.number_input("Stop Loss Limit (USD)", value=0.00, step=1.0)
+            entry = st.number_input("Entry Price (USD)", value=100.00, step=1.0)
+            sl = st.number_input("Stop Loss Limit (USD)", value=95.00, step=1.0)
             
             if st.button("Calculate Optimal Size", use_container_width=True):
-                st.info("Optimal Size: 100 Shares ($2,000 Total Capital at Risk)")
+                risk_amt = nav * (base_risk / 100) * multiplier
+                risk_per_share = abs(entry - sl)
+                if risk_per_share > 0 and risk_amt > 0:
+                    shares = int(risk_amt / risk_per_share)
+                    capital_at_risk = shares * entry
+                    st.info(f"Optimal Size: **{shares} Shares**\n\nTotal Capital: ${capital_at_risk:,.0f}\n\n*Risk Multiplier applied: {multiplier}x*")
+                else:
+                    if multiplier == 0.0:
+                        st.error("HARD STOP: Tier 4 active. Trading halted.")
+                    else:
+                        st.error("Invalid Entry or Stop Loss")
 
 def init_global_state():
     """Initializes the Master Ledger in st.session_state if it doesn't exist."""
