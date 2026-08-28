@@ -465,8 +465,8 @@ def compute_daily_trajectory(df_input):
                 
                 is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
                 if is_option:
-                    pct_change = (spot - actual_entry) / actual_entry if actual_entry > 0 else 0
-                    current_premium = entry_price * (1 + pct_change * 2) # 2x leverage dummy factor
+                    pct_change = 0.05 # Fixed dummy +5% profit
+                    current_premium = entry_price * 1.05 # 2x leverage dummy factor
                     pnl = shares * (current_premium - entry_price) * 100
                 else:
                     pnl = shares * (spot - actual_entry)
@@ -551,7 +551,7 @@ def calculate_portfolio_balances(df_input, initial_nav_per_silo=25000):
             # Open position
             if is_option:
                 # Dummy pricing: random +/- 15% return for floating options PnL
-                dummy_spot = entry_price * (1 + random.uniform(-0.15, 0.15))
+                dummy_spot = entry_price * 1.05
                 pnl = (dummy_spot - entry_price) * shares * 100
                 balances[silo] += pnl
             else:

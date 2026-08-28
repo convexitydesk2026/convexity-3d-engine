@@ -51,9 +51,14 @@ if not traj.empty:
     metrics['B'] = calculate_advanced_metrics(traj['silo_b_pnl'].values, spy_closes, 25000)
     metrics['C'] = calculate_advanced_metrics(traj['silo_c_pnl'].values, spy_closes, 25000)
     metrics['D'] = calculate_advanced_metrics(traj['silo_d_pnl'].values, spy_closes, 25000)
-    spy_metrics = calculate_advanced_metrics(np.diff(spy_closes, prepend=spy_closes[0]), spy_closes, 100000)
+    spy_pct_returns = np.diff(spy_closes) / spy_closes[:-1]
+    spy_pct_returns = np.insert(spy_pct_returns, 0, 0)
+    spy_metrics = calculate_advanced_metrics(spy_pct_returns * 100000, spy_closes, 100000)
+    
     qqq_closes = traj['qqq'].values
-    qqq_metrics = calculate_advanced_metrics(np.diff(qqq_closes, prepend=qqq_closes[0]), spy_closes, 100000)
+    qqq_pct_returns = np.diff(qqq_closes) / qqq_closes[:-1]
+    qqq_pct_returns = np.insert(qqq_pct_returns, 0, 0)
+    qqq_metrics = calculate_advanced_metrics(qqq_pct_returns * 100000, spy_closes, 100000)
 else:
     # Fallbacks if empty
     empty_met = {'irr':0, 'total_pnl':0, 'sharpe':0, 'max_dd_pct':0, 'dd_days':0, 'calmar':0, 'roc':0, 'alpha':0, 'beta':0, 'correlation':0}
