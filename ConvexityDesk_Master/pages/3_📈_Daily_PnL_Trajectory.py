@@ -72,7 +72,7 @@ if data_source == "GOAT Model Portfolio":
     equity_df = pd.DataFrame(goat_data)
 else:
     master_df = st.session_state.master_ledger
-    equity_df = master_df[master_df['Class'] == 'Equity'].copy()
+    equity_df = master_df.copy()
 
 if equity_df.empty:
     st.warning("⚠️ No physical equity positions found in Master Ledger. The PnL Trajectory is in Standby Mode.")

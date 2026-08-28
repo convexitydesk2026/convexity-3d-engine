@@ -453,25 +453,37 @@ def compute_daily_trajectory(df_input):
                 spot = entry_price
                 if ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
                     spot = float(hist_data[ticker].iloc[i])
-                    
+
                 # Fix Day-1 Anomaly: Anchor entry_price to the actual spot price on the first active trading day
                 if 'Real_Entry_Price' not in df_input.columns:
                     df_input['Real_Entry_Price'] = np.nan
-                    
+
                 if d >= entry_dt and pd.isna(df_input.at[_, 'Real_Entry_Price']) and ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
                     df_input.at[_, 'Real_Entry_Price'] = spot
-                    
+
                 actual_entry = df_input.at[_, 'Real_Entry_Price'] if pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
                 
-                pnl = shares * (spot - actual_entry)
+                is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
+                if is_option:
+                    pct_change = (spot - actual_entry) / actual_entry if actual_entry > 0 else 0
+                    current_premium = entry_price * (1 + pct_change * 2) # 2x leverage dummy factor
+                    pnl = shares * (current_premium - entry_price) * 100
+                else:
+                    pnl = shares * (spot - actual_entry)
             else:
                 # Trade is Closed: Calculate Realized PnL based on Exit Price
+                is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
                 actual_entry = df_input.at[_, 'Real_Entry_Price'] if 'Real_Entry_Price' in df_input.columns and pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
+                
                 if pd.notna(row['Exit Price']) and row['Exit Price'] != '':
                     exit_price = float(row['Exit Price'])
                 else:
-                    exit_price = actual_entry # Fallback to 0 PnL if no exit price provided
-                pnl = shares * (exit_price - actual_entry)
+                    exit_price = entry_price if is_option else actual_entry # Fallback to 0 PnL if no exit price provided
+                
+                if is_option:
+                    pnl = shares * (exit_price - entry_price) * 100
+                else:
+                    pnl = shares * (exit_price - actual_entry)
                 
             if row['Silo'] == 'A': a_val += pnl
             elif row['Silo'] == 'B': b_val += pnl
@@ -507,6 +519,7 @@ def compute_daily_trajectory(df_input):
 @st.cache_data(ttl=3600, show_spinner=False)
 def calculate_portfolio_balances(df_input, initial_nav_per_silo=25000):
     import yfinance as yf
+    import random
     tickers = df_input['Ticker'].dropna().unique().tolist()
     if not tickers:
         return {'Global': initial_nav_per_silo*4, 'A': initial_nav_per_silo, 'B': initial_nav_per_silo, 'C': initial_nav_per_silo, 'D': initial_nav_per_silo}
@@ -525,27 +538,31 @@ def calculate_portfolio_balances(df_input, initial_nav_per_silo=25000):
         
         shares = float(row.get('Shares', 0))
         entry_price = float(row.get('Entry Price', 0))
-        cost = shares * entry_price
+        is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
         
         exit_price = row.get('Exit Price')
         if pd.notna(exit_price) and exit_price != '':
             # Closed position
             pnl = (float(exit_price) - entry_price) * shares
-            if row.get('Class') == 'Options':
+            if is_option:
                 pnl = (float(exit_price) - entry_price) * shares * 100
             balances[silo] += pnl
         else:
             # Open position
-            ticker = row.get('Ticker')
-            spot = entry_price
-            if not hist_data.empty and ticker in hist_data.columns:
-                series = hist_data[ticker].dropna()
-                if not series.empty:
-                    spot = float(series.iloc[-1])
-            pnl = (spot - entry_price) * shares
-            if row.get('Class') == 'Options':
-                pnl = (spot - entry_price) * shares * 100
-            balances[silo] += pnl
+            if is_option:
+                # Dummy pricing: random +/- 15% return for floating options PnL
+                dummy_spot = entry_price * (1 + random.uniform(-0.15, 0.15))
+                pnl = (dummy_spot - entry_price) * shares * 100
+                balances[silo] += pnl
+            else:
+                ticker = row.get('Ticker')
+                spot = entry_price
+                if not hist_data.empty and ticker in hist_data.columns:
+                    series = hist_data[ticker].dropna()
+                    if not series.empty:
+                        spot = float(series.iloc[-1])
+                pnl = (spot - entry_price) * shares
+                balances[silo] += pnl
             
     balances['Global'] = sum([balances['A'], balances['B'], balances['C'], balances['D']])
     return balances

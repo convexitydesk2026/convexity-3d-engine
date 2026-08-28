@@ -77,7 +77,7 @@ with st.sidebar:
 
 init_global_state()
 master_df = st.session_state.master_ledger
-equity_df = master_df[master_df['Class'] == 'Equity'].copy()
+equity_df = master_df.copy()
 if equity_df.empty:
     st.warning("⚠️ No physical equity positions found in Master Ledger. The Simulator is in Standby Mode.")
     st.stop()
@@ -87,15 +87,8 @@ if traj_df.empty:
     st.error("Error generating trajectory from Master Ledger.")
     st.stop()
 
-# Calculate actual starting capital based on the dummy portfolio's initial deployed cash
-try:
-    equity_df['Entry Price'] = pd.to_numeric(equity_df['Entry Price'], errors='coerce')
-    equity_df['Shares'] = pd.to_numeric(equity_df['Shares'], errors='coerce')
-    start_capital = float((equity_df['Entry Price'] * equity_df['Shares'].abs()).sum())
-    if start_capital == 0:
-        start_capital = 100000.0
-except Exception:
-    start_capital = 100000.0
+# Start capital is hardcoded to $100k seed for the dummy environment
+start_capital = 100000.0
 
 daily_pnl_array = traj_df['daily_pnl'].values
 
@@ -163,7 +156,7 @@ mc_fig.add_trace(go.Scatter(y=orig_cum, name='Original Realized History', mode='
 if np.sum(spy_closes) > 0:
     spy_returns = np.diff(spy_closes) / spy_closes[:-1]
     spy_returns = np.insert(spy_returns, 0, 0) # Pad to match array start
-    spy_dollar_pnl = np.insert(np.cumsum(spy_returns * start_capital), 0, 0)
+    spy_dollar_pnl = np.cumsum(spy_returns * start_capital)
     mc_fig.add_trace(go.Scatter(y=spy_dollar_pnl, name='S&P 500 (SPY)', mode='lines', line=dict(color='orange', width=4.5)))
     mc_fig.add_annotation(x=num_days_in_grid-1, y=spy_dollar_pnl[-1], text=f"SPY: ${spy_dollar_pnl[-1]:,.0f}<br>Bal: ${(start_capital + spy_dollar_pnl[-1]):,.0f}", showarrow=False, xanchor='left', bgcolor='orange', font=dict(color='black', size=11))
 

@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import render_global_sidebar, render_page_footer, render_page_header, init_global_state, calculate_portfolio_balances
+from public_core_math import render_global_sidebar, render_page_footer, render_page_header, init_global_state, calculate_portfolio_balances, compute_daily_trajectory, calculate_advanced_metrics
 
 st.set_page_config(page_title="Multi-Account Aggregation | Convexity Desk", layout="wide")
 
@@ -32,9 +32,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 render_page_header("💼 Multi-Account Aggregation", "Consolidated Global Risk & Performance Metrics")
-
 st.markdown("---")
-
 st.info("💡 **Educational Example:** This module demonstrates how institutional software consolidates multiple retail accounts (e.g., 401k, Swing Trading, Options) into a single risk profile.")
 
 init_global_state()
@@ -43,20 +41,41 @@ master_df = st.session_state.master_ledger
 bals = calculate_portfolio_balances(master_df, initial_nav_per_silo=25000)
 global_nav = bals['Global']
 
-# Mock Data for Aggregation - Real Balances, Mock Metrics
+# Calculate Real Metrics
+traj = compute_daily_trajectory(master_df)
+metrics = {}
+if not traj.empty:
+    spy_closes = traj['spy'].values
+    metrics['Global'] = calculate_advanced_metrics(traj['daily_pnl'].values, spy_closes, 100000)
+    metrics['A'] = calculate_advanced_metrics(traj['silo_a_pnl'].values, spy_closes, 25000)
+    metrics['B'] = calculate_advanced_metrics(traj['silo_b_pnl'].values, spy_closes, 25000)
+    metrics['C'] = calculate_advanced_metrics(traj['silo_c_pnl'].values, spy_closes, 25000)
+    metrics['D'] = calculate_advanced_metrics(traj['silo_d_pnl'].values, spy_closes, 25000)
+    spy_metrics = calculate_advanced_metrics(np.diff(spy_closes, prepend=spy_closes[0]), spy_closes, 100000)
+    qqq_closes = traj['qqq'].values
+    qqq_metrics = calculate_advanced_metrics(np.diff(qqq_closes, prepend=qqq_closes[0]), spy_closes, 100000)
+else:
+    # Fallbacks if empty
+    empty_met = {'irr':0, 'total_pnl':0, 'sharpe':0, 'max_dd_pct':0, 'dd_days':0, 'calmar':0, 'roc':0, 'alpha':0, 'beta':0, 'correlation':0}
+    metrics = {k: empty_met for k in ['Global', 'A', 'B', 'C', 'D']}
+    spy_metrics = empty_met
+    qqq_metrics = empty_met
+
+
+# Dynamic Aggregation Table
 data = {
     "Entity": ["GLOBAL PORTFOLIO", "S&P 500 (SPY)", "NASDAQ 100 (QQQ)"],
-    "Balance": [f"${global_nav:,.0f}", "$1,123,408", "$1,113,809"],
-    "IRR": ["35.38%", "20.94%", "19.34%"],
-    "PnL": [f"${global_nav - 100000:,.0f}", "$128,945", "$119,346"],
-    "Sharpe": ["1.85", "1.01", "0.63"],
-    "Max DD": ["-8.44%", "-9.15%", "-15.07%"],
-    "DD Days": ["32 d", "110 d", "76 d"],
-    "Calmar": ["1.82", "2.29", "1.28"],
-    "ROC": ["14.17%", "12.97%", "12.00%"],
-    "Alpha": ["5.63%", "-10.63%", "-9.31%"],
-    "Beta": ["0.35", "0.45", "0.79"],
-    "Corr": ["0.21", "0.41", "0.51"]
+    "Balance": [f"${global_nav:,.0f}", "-", "-"],
+    "IRR": [f"{metrics['Global']['irr']:.2f}%", f"{spy_metrics['irr']:.2f}%", f"{qqq_metrics['irr']:.2f}%"],
+    "PnL": [f"${metrics['Global']['total_pnl']:,.0f}", f"${spy_metrics['total_pnl']:,.0f}", f"${qqq_metrics['total_pnl']:,.0f}"],
+    "Sharpe": [f"{metrics['Global']['sharpe']:.2f}", f"{spy_metrics['sharpe']:.2f}", f"{qqq_metrics['sharpe']:.2f}"],
+    "Max DD": [f"-{metrics['Global']['max_dd_pct']:.2f}%", f"-{spy_metrics['max_dd_pct']:.2f}%", f"-{qqq_metrics['max_dd_pct']:.2f}%"],
+    "DD Days": [f"{int(metrics['Global'].get('dd_days', 32))} d", "-", "-"],
+    "Calmar": [f"{metrics['Global']['calmar']:.2f}", f"{spy_metrics['calmar']:.2f}", f"{qqq_metrics['calmar']:.2f}"],
+    "ROC": [f"{metrics['Global']['roc']:.2f}%", f"{spy_metrics['roc']:.2f}%", f"{qqq_metrics['roc']:.2f}%"],
+    "Alpha": [f"{metrics['Global']['alpha']:.2f}%", f"{spy_metrics['alpha']:.2f}%", f"{qqq_metrics['alpha']:.2f}%"],
+    "Beta": [f"{metrics['Global']['beta']:.2f}", f"{spy_metrics['beta']:.2f}", f"{qqq_metrics['beta']:.2f}"],
+    "Corr": [f"{metrics['Global']['correlation']:.2f}", f"{spy_metrics['correlation']:.2f}", f"{qqq_metrics['correlation']:.2f}"]
 }
 df_agg = pd.DataFrame(data)
 
@@ -66,9 +85,12 @@ st.markdown("<div style='text-align: center; color: #64748b; font-size: 12px; ma
 
 col1, col2, col3, col4 = st.columns(4)
 
-def plot_mini_chart(color):
+def plot_mini_chart(color, pnl_array, seed=25000):
     fig = go.Figure()
-    y_vals = np.cumsum(np.random.normal(0.001, 0.01, 100))
+    if pnl_array is None or len(pnl_array) == 0:
+        y_vals = np.cumsum(np.random.normal(0.001, 0.01, 100))
+    else:
+        y_vals = seed + np.cumsum(pnl_array)
     fig.add_trace(go.Scatter(y=y_vals, mode='lines', line=dict(color='black', width=2)))
     fig.update_layout(
         height=150, margin=dict(l=0, r=0, t=0, b=0),
@@ -81,26 +103,26 @@ def plot_mini_chart(color):
 with col1:
     st.markdown("#### Account A (Core 401K)")
     st.caption(f"Bal: ${bals['A']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#86efac"), use_container_width=True)
-    st.markdown("IRR: 28.73% <br> Sharpe: 1.02 <br> Max DD: -12.42%", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#86efac", traj['silo_a_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown(f"IRR: {metrics['A']['irr']:.2f}% <br> Sharpe: {metrics['A']['sharpe']:.2f} <br> Max DD: -{metrics['A']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 with col2:
     st.markdown("#### Account B (High Beta)")
     st.caption(f"Bal: ${bals['B']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#93c5fd"), use_container_width=True)
-    st.markdown("IRR: 34.14% <br> Sharpe: 1.20 <br> Max DD: -18.23%", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#93c5fd", traj['silo_b_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown(f"IRR: {metrics['B']['irr']:.2f}% <br> Sharpe: {metrics['B']['sharpe']:.2f} <br> Max DD: -{metrics['B']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 with col3:
     st.markdown("#### Account C (Speculative)")
     st.caption(f"Bal: ${bals['C']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#c084fc"), use_container_width=True)
-    st.markdown("IRR: 52.06% <br> Sharpe: 0.85 <br> Max DD: -32.74%", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#c084fc", traj['silo_c_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown(f"IRR: {metrics['C']['irr']:.2f}% <br> Sharpe: {metrics['C']['sharpe']:.2f} <br> Max DD: -{metrics['C']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 with col4:
     st.markdown("#### Account D (Options / VRP)")
     st.caption(f"Bal: ${bals['D']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#fcd34d"), use_container_width=True)
-    st.markdown("IRR: 24.50% <br> Sharpe: 1.95 <br> Max DD: -4.10%", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#fcd34d", traj['silo_d_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown(f"IRR: {metrics['D']['irr']:.2f}% <br> Sharpe: {metrics['D']['sharpe']:.2f} <br> Max DD: -{metrics['D']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -127,20 +149,25 @@ with st.expander("🏦 View GAAP Balance Sheet & Allocation", expanded=True):
     def get_open_value(silo_name, class_name):
         df_sub = active_df[(active_df['Silo'] == silo_name) & (active_df['Class'] == class_name)]
         val = 0
+        import random
         for _, row in df_sub.iterrows():
             shares = float(row.get('Shares', 0))
             entry = float(row.get('Entry Price', 0))
             t = row.get('Ticker')
             spot = spot_prices.get(t, entry)
-            if class_name == 'Options':
-                val += spot * shares * 100
+            if class_name == 'Options' or class_name == 'Option':
+                dummy_spot = entry * (1 + random.uniform(-0.15, 0.15))
+                val += dummy_spot * shares * 100
             else:
                 val += spot * shares
         return val
 
     silos = ['Silo A', 'Silo B', 'Silo C', 'Silo D']
     physical = [get_open_value('A', 'Equity'), get_open_value('B', 'Equity'), get_open_value('C', 'Equity'), get_open_value('D', 'Equity')]
-    iv_yield = [get_open_value('A', 'Options'), get_open_value('B', 'Options'), get_open_value('C', 'Options'), get_open_value('D', 'Options')]
+    iv_yield = [get_open_value('A', 'Options') + get_open_value('A', 'Option'), 
+                get_open_value('B', 'Options') + get_open_value('B', 'Option'), 
+                get_open_value('C', 'Options') + get_open_value('C', 'Option'), 
+                get_open_value('D', 'Options') + get_open_value('D', 'Option')]
     cash = [max(0, bals['A'] - physical[0] - iv_yield[0]), 
             max(0, bals['B'] - physical[1] - iv_yield[1]), 
             max(0, bals['C'] - physical[2] - iv_yield[2]), 
@@ -201,11 +228,7 @@ with st.expander("🏦 View GAAP Balance Sheet & Allocation", expanded=True):
     with col_pie2:
         st.markdown("#### Sector Concentration Risk")
         # Dynamic sector proxy (random for dummy display but mathematically tied to 100%)
-        # In a real app we'd map Tickers to Sectors. Here we just split the physical/iv yield
-        s1 = 45.8
-        s2 = 30.2
-        s3 = 14.5
-        s4 = 9.5
+        s1 = 45.8; s2 = 30.2; s3 = 14.5; s4 = 9.5
         fig_sec = go.Figure(data=[go.Pie(
             labels=['Tech & Innovation', 'Macro', 'Energy', 'Financials'],
             values=[s1, s2, s3, s4],
