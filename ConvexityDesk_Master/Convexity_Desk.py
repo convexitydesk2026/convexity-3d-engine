@@ -146,12 +146,6 @@ with col8:
 
 st.divider()
 
-st.markdown("""
-<div style='text-align: center; color: #94a3b8; font-size: 0.85rem;'>
-    <i>"Do not guess. Do not hope. Measure, quantify, and execute."</i><br><br>
-    © 2026 Convexity Desk. All Rights Reserved.
-</div>
-""", unsafe_allow_html=True)
 
 # Add a sidebar link back to the main site
 with st.sidebar:

@@ -6,6 +6,40 @@ import logging
 import streamlit as st
 import io
 from pathlib import Path
+import random
+
+TRADING_QUOTES = [
+    '"Do not guess. Do not hope. Measure, quantify, and execute." — Convexity Desk Original',
+    '"Risk comes from not knowing what you\'re doing." — Warren Buffett',
+    '"It\'s not whether you\'re right or wrong that\'s important, but how much money you make when you\'re right and how much you lose when you\'re wrong." — George Soros',
+    '"The elements of good trading are: 1. Cutting losses, 2. Cutting losses, and 3. Cutting losses." — Ed Seykota',
+    '"I have two basic rules about winning in trading: 1. If you don\'t bet, you can\'t win. 2. If you lose all your chips, you can\'t bet." — Larry Hite',
+    '"My experience with novice traders is that they trade three to five times too big." — Bruce Kovner',
+    '"Don\'t focus on making money; focus on protecting what you have." — Paul Tudor Jones',
+    '"He who lives by the crystal ball will eat shattered glass." — Ray Dalio',
+    '"Amateurs go broke by taking large losses, professionals go broke by taking small profits." — William Eckhardt',
+    '"There is no such thing as a good or bad stock; there are only good or bad trades." — Mark Minervini',
+    '"I believe in analysis and not forecasting." — Nicolas Darvas',
+    '"The game of speculation is the most uniformly fascinating game in the world. But it is not a game for the stupid, the mentally lazy, or the person of inferior emotional balance." — Jesse Livermore',
+    '"Trade small because that\'s when you are as bad as you are ever going to be." — Richard Dennis',
+    '"The key to trading success is emotional discipline. If intelligence were the key, there would be a lot more people making money trading." — Victor Sperandeo',
+    '"We\'re right 50.75 percent of the time... You can make billions that way." — Jim Simons',
+    '"The goal of a successful trader is to make the best trades. Money is secondary." — Alexander Elder',
+    '"You have to have a system. You have to trade your system." — Kristjan Kullamägi (Qullamaggie)',
+    '"Never average losses. Let that thought be written in your mind." — Jesse Livermore',
+    '"You don\'t need to know what is going to happen next in order to make money." — Mark Douglas',
+    '"A system is only as good as the discipline of the trader executing it." — Lukas Fröhlich',
+    '"Rule No. 1: Never lose money. Rule No. 2: Never forget rule No. 1." — Warren Buffett',
+    '"The way to build long-term returns is through preservation of capital and home runs." — Stan Druckenmiller',
+    '"Every trader has a plan until they get punched in the mouth by a gap down. That’s why you hedge." — Unknown',
+    '"Trading is like being part investigative journalist, part data analyst, part risk manager, and part psychologist." — Lukas Fröhlich',
+    '"My goal is to wait for high-conviction opportunities, which tend to arise from sectors and stocks that have been unduly depressed by bearish sentiment." — Lukas Fröhlich',
+    '"I might start a position when the stock is trading below its 200-day moving average, but I won’t put on a substantial position until it is trading above that level." — Lukas Fröhlich',
+    '"I enter either when a stock is breaking out on the upside of a recent range or when it reclaims its 200-day moving average." — Lukas Fröhlich',
+    '"The “golden goose” opportunities are mispriced stocks that are neglected or hated by the market and combine the following elements: strong fundamentals, a consolidating chart pattern, and an expected or realized catalyst for change." — Lukas Fröhlich',
+    '"It is best to wait for a bottom to form before buying." — Lukas Fröhlich',
+    '"I continually ask myself, What is the likeliest path to achieve the highest risk-adjusted return?" — Lukas Fröhlich'
+]
 
 # Suppress yfinance warnings
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -24,6 +58,15 @@ def render_page_footer(purpose_text=""):
                 st.success("Thanks! Your feedback has been recorded.")
             else:
                 st.error("Please enter some feedback before submitting.")
+                
+    # Dynamic Quote
+    quote = random.choice(TRADING_QUOTES)
+    st.markdown(f"""
+    <div style='text-align: center; color: #94a3b8; font-size: 0.85rem; padding: 20px 0;'>
+        <i>{quote}</i><br><br>
+        © 2026 Convexity Desk. All Rights Reserved.
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_global_sidebar():
     """Renders the global Alpha Risk Calculator & HWM Budget on the sidebar for all pages."""
