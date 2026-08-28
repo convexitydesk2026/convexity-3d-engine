@@ -54,7 +54,7 @@ def render_page_footer(purpose_text=""):
     with st.expander("📬 Contact Convexity Desk", expanded=False):
         st.markdown("<p style='font-size: 14px; color: #64748b;'>Questions about the math, risk models, or quantitative philosophy? Send us a direct message below.</p>", unsafe_allow_html=True)
         st.markdown("""
-        <form action="https://formsubmit.co/convexitydesk@gmail.com" method="POST">
+        <form action="https://formsubmit.co/1c106c0855fb7100b5ac0187b834755d" method="POST">
             <input type="text" name="name" placeholder="Your Name" required style="width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #cbd5e1;">
             <input type="email" name="email" placeholder="Your Email" required style="width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #cbd5e1;">
             <textarea name="message" placeholder="Your Message..." required style="width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #cbd5e1; min-height:100px;"></textarea>
