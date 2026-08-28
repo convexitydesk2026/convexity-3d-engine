@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 st.set_page_config(page_title="Daily PnL Trajectory | Convexity Desk", layout="wide")
-from public_core_math import render_global_sidebar, compute_daily_trajectory, render_page_footer, init_global_state
+from public_core_math import render_global_sidebar, compute_daily_trajectory, render_page_footer, init_global_state, render_page_header
 render_global_sidebar()
 init_global_state()
 
@@ -34,13 +34,12 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.markdown("Replicate and analyze institutional equity curve trajectories.")
 data_source = st.radio("Select Data Source", ["GOAT Model Portfolio", "Educational Sandbox"], horizontal=True, label_visibility="collapsed")
 
 if data_source == "GOAT Model Portfolio":
-    st.title("🏆 GOAT Model Portfolio Trajectory")
+    render_page_header("🏆 GOAT Model Portfolio Trajectory", "Replicate and analyze institutional equity curve trajectories.")
 else:
-    st.title("📊 Educational Sandbox Trajectory")
+    render_page_header("📊 Educational Sandbox Trajectory", "Replicate and analyze institutional equity curve trajectories.")
 
 @st.cache_data(ttl=86400)
 def get_historical_close(ticker, target_date):

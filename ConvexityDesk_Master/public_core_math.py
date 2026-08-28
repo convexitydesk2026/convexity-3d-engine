@@ -114,6 +114,18 @@ def render_global_sidebar():
                     else:
                         st.error("Invalid Entry or Stop Loss")
 
+def render_page_header(title: str, subtitle: str):
+    """Renders a globally consistent, institutional dark-blue header banner."""
+    st.markdown(
+        f"""
+        <div style="background-color: #0f172a; padding: 30px; border-radius: 8px; margin-bottom: 30px; text-align: center; color: white;">
+            <h1 style="color: white; margin-bottom: 10px; font-size: 32px;">{title}</h1>
+            <p style="color: #94a3b8; font-size: 16px; margin: 0;">{subtitle}</p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
 def init_global_state():
     """Initializes the Master Ledger in st.session_state if it doesn't exist."""
     if 'master_ledger' not in st.session_state:

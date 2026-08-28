@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import random
 from datetime import datetime, date
-from public_core_math import render_global_sidebar, generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, compute_daily_trajectory, render_page_footer
+from public_core_math import render_global_sidebar, generate_synthetic_pnl, generate_mc_paths, get_spy_data, calculate_advanced_metrics, init_global_state, compute_daily_trajectory, render_page_footer, render_page_header
 
 st.set_page_config(page_title="Monte Carlo Simulator", layout="wide")
 
@@ -61,9 +61,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Convexity Desk")
-st.markdown("##### 🎲 Monte Carlo PnL Simulator")
-st.markdown("Stress test your edge across 10,000 reshuffled realities.")
+render_page_header("🎲 Monte Carlo PnL Simulator", "Stress test your edge across 10,000 reshuffled realities.")
 
 st.info("💡 **Data Provenance:** This simulator dynamically draws its trade parameters (Win Rate, Average Win, Average Loss) directly from the positions you configure in the **[Physical Equity Risk Ledger](/Physical_Equity_Risk_Ledger)** module. Navigate there to edit the inputs!")
 

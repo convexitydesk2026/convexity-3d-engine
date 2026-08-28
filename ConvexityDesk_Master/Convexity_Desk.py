@@ -1,5 +1,5 @@
 import streamlit as st
-from public_core_math import render_page_footer, render_global_sidebar
+from public_core_math import render_page_footer, render_global_sidebar, render_page_header
 
 st.set_page_config(page_title="Convexity Desk | Quant Engine", layout="wide", initial_sidebar_state="expanded")
 
@@ -35,59 +35,14 @@ st.markdown("""
         }
 
         /* Premium Header Styling */
-        .hero-banner {
-            padding: 3rem 2rem;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            border-radius: 12px;
-            color: white;
-            text-align: center;
-            margin-bottom: 2rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            border: 1px solid #334155;
-        }
-        
-        .hero-title {
-            font-size: 3rem;
-            font-weight: 800;
-            margin-bottom: 0.5rem;
-            background: -webkit-linear-gradient(45deg, #60a5fa, #34d399);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        .hero-subtitle {
-            font-size: 1.2rem;
-            color: #94a3b8;
-            max-width: 700px;
-            margin: 0 auto;
-        }
-        
-        /* Module Card Subtitles */
-        .card-desc {
-            font-size: 0.95rem;
-            color: #64748b;
-            margin-bottom: 1.5rem;
-            line-height: 1.5;
-        }
-    </style>
-    
     <div class="mobile-blocker">
         <h1 style="font-size: 24px; color: #ff4b4b; margin-bottom: 20px;">Desktop Only</h1>
         <p style="font-size: 16px; line-height: 1.5;">The Convexity Desk interactive tools are optimized exclusively for desktop monitors.</p>
         <p style="font-size: 16px; line-height: 1.5; color: #a1a1aa;">Please visit <b>convexitydesk.com</b> on your computer to access the platform.</p>
     </div>
-    
-    <div class="hero-banner">
-        <div class="hero-title">Convexity Desk</div>
-        <div class="hero-subtitle">The Institutional Quant Engine for Retail Desks.</div>
-        <div style="margin-top: 15px; color: #60a5fa; font-weight: 500; font-size: 1.05rem;">
-            Institutional swing-trade signals and mechanical risk management.
-        </div>
-        <div style="margin-top: 5px; color: #94a3b8; font-weight: 400; font-size: 0.95rem;">
-            Zero-Retention Cloud Engine. Absolute privacy. We don't want your data. We provide the edge.
-        </div>
-    </div>
 """, unsafe_allow_html=True)
+
+render_page_header("Convexity Desk", "The Institutional Quant Engine for Retail Desks. Institutional swing-trade signals and mechanical risk management.")
 
 st.markdown("### 🎛️ Active Modules")
 st.markdown("<br>", unsafe_allow_html=True)

@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import render_global_sidebar, render_page_footer
+from public_core_math import render_global_sidebar, render_page_footer, render_page_header
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
@@ -35,8 +35,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.title("Market Flow Matrix")
-st.markdown("Global Institutional Rotation & Relative Strength Engine")
+render_page_header("🌊 Market Flow Matrix", "Global Institutional Rotation & Relative Strength Engine")
 
 # ==============================================================================
 # CONFIGURATION & CONSTANTS

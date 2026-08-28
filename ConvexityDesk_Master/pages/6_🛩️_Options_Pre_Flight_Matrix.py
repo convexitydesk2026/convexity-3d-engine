@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from public_core_math import render_global_sidebar, render_page_footer
+from public_core_math import render_global_sidebar, render_page_footer, render_page_header
 import numpy as np
 import datetime
 
@@ -30,8 +30,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-st.title("Options Governor & Pre-Flight Matrix")
-st.markdown("This module polls live market data to mechanically enforce risk parameters across all options strategies.")
+render_page_header("🛩️ Options Governor & Pre-Flight Matrix", "This module polls live market data to mechanically enforce risk parameters across all options strategies.")
 
 @st.cache_data(ttl=900)  # Refresh every 15 minutes
 def fetch_live_market_data():

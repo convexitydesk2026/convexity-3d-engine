@@ -4,7 +4,7 @@ import pandas as pd
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import render_global_sidebar, render_page_footer
+from public_core_math import render_global_sidebar, render_page_footer, render_page_header
 
 st.set_page_config(page_title="GOAT Alpha Engine | Convexity Desk", layout="wide")
 
@@ -30,8 +30,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.title("🔥 GOAT Alpha Engine")
-st.markdown("##### Premium Signal Generation & Idea Tracking")
+render_page_header("🔥 GOAT Alpha Engine", "Premium Signal Generation & Idea Tracking")
 
 st.markdown("---")
 
@@ -82,9 +81,10 @@ with col2:
     st.markdown("### 🦜 Squawk Box")
     st.markdown("[Alpha Radar X List by ConvexityDesk](https://x.com/i/lists/2091567520998142458)")
     
-    components.html("""
-    <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://x.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> 
-    <script async src="https://platform.x.com/widgets.js" charset="utf-8"></script>
-    """, height=600, scrolling=True)
+    st.info("Data Feed temporarily disconnected during infrastructure migration.")
+    # components.html("""
+    # <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://x.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> 
+    # <script async src="https://platform.x.com/widgets.js" charset="utf-8"></script>
+    # """, height=600, scrolling=True)
 
 render_page_footer("The GOAT Alpha Engine centralizes high-probability idea generation. It tracks Qullamaggie Episodic Pivots, 13F institutional accumulation bases, and live Squawk Box alerts to feed the Pre-Flight Matrix.")

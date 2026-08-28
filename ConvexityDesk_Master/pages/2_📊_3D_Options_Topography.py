@@ -46,9 +46,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Convexity Desk")
 
-st.markdown("##### 3D Options Topography & Gamma Cliffs")
 
 # ==========================================
 # 2. CORE QUANTITATIVE MATH (BLACK-SCHOLES)
@@ -100,8 +98,9 @@ from pathlib import Path
 from scipy.interpolate import griddata
 import time
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import render_global_sidebar, init_global_state, render_page_footer
+from public_core_math import render_global_sidebar, init_global_state, render_page_footer, render_page_header
 render_global_sidebar()
+render_page_header("3D Options Topography & Gamma Cliffs", "Visualizing the Gamma Cliff and Theta Glide Path across multiple Volatility Risk Premium strategies.")
 
 # Initialize Global State
 init_global_state()
@@ -194,12 +193,7 @@ tab1 = st.container()
 tab2 = st.container()
 
 with tab1:
-    st.markdown("""
-    <div class='premium-banner'>
-        <h2 style='margin:0; color:white;'>Institutional Options Topography Engine & Ledger</h2>
-        <p style='margin:5px 0 0 0; color:#94a3b8;'>Visualizing the Gamma Cliff and Theta Glide Path across multiple Volatility Risk Premium strategies.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    pass
     
     st.markdown("### 🟢 Active Options Performance Ledger")
     st.markdown("<div style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>To interact with the 3D engine below, expand the <b>⚙️ Options Trade Parameters</b> sidebar to configure arbitrary structures. This ledger solely displays your current open derivatives from the Sandbox.</div>", unsafe_allow_html=True)

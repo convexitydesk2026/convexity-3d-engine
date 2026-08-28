@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
-from public_core_math import render_global_sidebar, render_page_footer
+from public_core_math import render_global_sidebar, render_page_footer, render_page_header
 
 st.set_page_config(page_title="Multi-Account Aggregation | Convexity Desk", layout="wide")
 
@@ -31,8 +31,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.title("💼 Multi-Account Aggregation")
-st.markdown("##### Consolidated Global Risk & Performance Metrics")
+render_page_header("💼 Multi-Account Aggregation", "Consolidated Global Risk & Performance Metrics")
 
 st.markdown("---")
 
