@@ -33,19 +33,24 @@ st.markdown("""
                 z-index: 999999; 
             }
         }
-        
         /* Compact Card & Button Styling */
         div[data-testid="stPageLink"] a {
             background-color: #2563eb !important; /* High contrast blue */
             color: white !important;
-            padding: 6px 14px !important;
+            padding: 8px 14px !important;
             border-radius: 6px !important;
             text-decoration: none !important;
-            font-weight: 600 !important;
-            font-size: 0.85rem !important;
+            font-weight: bold !important;
+            font-size: 0.9rem !important;
             transition: all 0.2s ease-in-out;
             display: inline-flex;
+            justify-content: center;
+            width: 220px !important; /* Equal size for all buttons */
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        div[data-testid="stPageLink"] a p, div[data-testid="stPageLink"] a span {
+            color: white !important;
+            font-weight: bold !important;
         }
         div[data-testid="stPageLink"] a:hover {
             background-color: #1d4ed8 !important;
