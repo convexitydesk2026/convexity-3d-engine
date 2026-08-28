@@ -57,7 +57,7 @@ def run_price_monitor():
         if not df_goat.empty:
             tickers_goat = df_goat['ticker'].tolist()
             # Fetch live prices
-            data_goat = yf.download(tickers_goat, period="1d", interval="1m", progress=False)
+            data_goat = yf.download(tickers_goat, period="1d", interval="1m", progress=False, auto_adjust=False)
             
             for _, row in df_goat.iterrows():
                 ticker = row['ticker']
@@ -90,20 +90,20 @@ def run_price_monitor():
         if not df_ep.empty:
             for _, row in df_ep.iterrows():
                 ticker = row['ticker']
-                orb_high = float(row.get('orb_high', 0.0))
-                rvol_target = float(row.get('rvol_target', 300.0))
+                orb_high = float(row['orb_high']) if pd.notna(row.get('orb_high')) else 0.0
+                rvol_target = float(row['rvol_target']) if pd.notna(row.get('rvol_target')) else 300.0
                 
                 if orb_high == 0.0:
                     continue # Skip if no valid ORB high is set
                     
                 try:
                     # Fetch 5-minute intraday data
-                    data_5m = yf.download(ticker, period="1d", interval="5m", progress=False)
+                    data_5m = yf.download(ticker, period="1d", interval="5m", progress=False, auto_adjust=False)
                     if data_5m.empty:
                         continue
                         
                     # Fetch daily data for 14-day ADV
-                    data_daily = yf.download(ticker, period="1mo", interval="1d", progress=False)
+                    data_daily = yf.download(ticker, period="1mo", interval="1d", progress=False, auto_adjust=False)
                     if len(data_daily) < 14:
                         continue
                         
