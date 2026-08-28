@@ -287,7 +287,7 @@ def get_insight_html():
     def stat(t, metric): return results[t][metric]
     
     html = f'''<div style="background-color:#fff; border: 1px solid #ddd; padding: 20px; margin-top: 10px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); max-width: 1300px;">
-        <p style="font-style: italic; color: #64748b; font-size: 12px; margin-bottom: 15px;">Data compiled by the Convexity Desk Quant Engine. Reviewed and authorized by the Chief Investment Officer.</p>
+        <p style="font-style: italic; color: #64748b; font-size: 12px; margin-bottom: 15px;">Data compiled by the Convexity Desk Quant Engine.</p>
         <h3 style="margin-top:0; color:#1b5e20;">Top Actionable Discoveries (Context-Aware)</h3><ul style="font-size: 13px; line-height: 1.6; color: black;">'''
     
     acc_t = max(valid_tickers, key=lambda t: stat(t, 'RS Vel (5D)') if stat(t, 'RVOL') > 1.0 else -999)

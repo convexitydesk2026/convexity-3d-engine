@@ -29,7 +29,7 @@ def render_global_sidebar():
     """Renders the global Alpha Risk Calculator & HWM Budget on the sidebar for all pages."""
     with st.sidebar:
         st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
-        st.caption("[📖 Read the mathematical methodology here](https://convexitydesk.com/the-math-behind-the-alpha-risk-calculator/)")
+        st.caption("[Read the mathematical methodology here](https://convexitydesk.com/the-math-behind-the-alpha-risk-calculator/)")
         
         c1, c2 = st.columns(2)
         with c1:
