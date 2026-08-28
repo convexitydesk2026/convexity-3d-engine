@@ -34,7 +34,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-data_source = st.radio("Select Data Source", ["GOAT Model Portfolio", "Educational Sandbox"], horizontal=True, label_visibility="collapsed")
+data_source = st.radio("Select Data Source", ["Educational Sandbox", "GOAT Model Portfolio"], horizontal=True, label_visibility="collapsed")
 
 if data_source == "GOAT Model Portfolio":
     render_page_header("🏆 GOAT Model Portfolio Trajectory", "Replicate and analyze institutional equity curve trajectories.")
