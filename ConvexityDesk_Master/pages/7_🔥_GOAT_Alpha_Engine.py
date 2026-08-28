@@ -83,8 +83,8 @@ with col2:
     st.markdown("[Alpha Radar X List by ConvexityDesk](https://x.com/i/lists/2091567520998142458)")
     
     components.html("""
-    <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://twitter.com/i/lists/2091567520998142458?ref_src=twsrc%5Etfw">A Twitter List by ConvexityDesk</a>
-    <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+    <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://x.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> 
+    <script async src="https://platform.x.com/widgets.js" charset="utf-8"></script>
     """, height=600, scrolling=True)
 
 render_page_footer("The GOAT Alpha Engine centralizes high-probability idea generation. It tracks Qullamaggie Episodic Pivots, 13F institutional accumulation bases, and live Squawk Box alerts to feed the Pre-Flight Matrix.")
