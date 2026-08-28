@@ -33,6 +33,39 @@ st.markdown("""
                 z-index: 999999; 
             }
         }
+        
+        /* Compact Card & Button Styling */
+        div[data-testid="stPageLink"] a {
+            background-color: #2563eb !important; /* High contrast blue */
+            color: white !important;
+            padding: 6px 14px !important;
+            border-radius: 6px !important;
+            text-decoration: none !important;
+            font-weight: 600 !important;
+            font-size: 0.85rem !important;
+            transition: all 0.2s ease-in-out;
+            display: inline-flex;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        div[data-testid="stPageLink"] a:hover {
+            background-color: #1d4ed8 !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        /* Reduce padding in container to make cards tighter */
+        div[data-testid="stVerticalBlockBorderWrapper"] > div {
+            padding: 0.8rem 1rem !important;
+        }
+        /* Reduce bottom margin of h4 inside cards */
+        div[data-testid="stVerticalBlockBorderWrapper"] h4 {
+            margin-bottom: 0.2rem !important;
+            padding-bottom: 0 !important;
+        }
+        .card-desc {
+            margin-bottom: 0.6rem !important;
+            font-size: 0.85rem !important;
+            line-height: 1.3 !important;
+            color: #a1a1aa;
+        }
 
         /* Premium Header Styling */
     <div class="mobile-blocker">
@@ -45,7 +78,6 @@ st.markdown("""
 render_page_header("Convexity Desk", "The Institutional Quant Engine for Retail Desks. Institutional swing-trade signals and mechanical risk management.")
 
 st.markdown("### 🎛️ Active Modules")
-st.markdown("<br>", unsafe_allow_html=True)
 
 # Create a 2x2 grid of premium cards
 col1, col2 = st.columns(2)
@@ -62,7 +94,7 @@ with col2:
         st.markdown("<div class='card-desc'>Visualize complex Gamma cliffs, Theta glide paths, and Volatility shocks on your live credit spreads using interactive 3D surface plane intersections.</div>", unsafe_allow_html=True)
         st.page_link("pages/2_📊_3D_Options_Topography.py", label="Launch Engine", icon="🚀")
 
-st.markdown("<br>", unsafe_allow_html=True)
+
 col3, col4 = st.columns(2)
 
 with col3:
@@ -77,7 +109,7 @@ with col4:
         st.markdown("<div class='card-desc'>Strict mechanical checklist to guarantee pristine trade execution. Mitigate emotional bias by running trades through the pre-flight quantitative filter.</div>", unsafe_allow_html=True)
         st.page_link("pages/6_🛩️_Options_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
 
-st.markdown("<br>", unsafe_allow_html=True)
+
 col5, col6 = st.columns(2)
 
 with col5:
@@ -92,7 +124,7 @@ with col6:
         st.markdown("<div class='card-desc'>An ephemeral sandbox ledger. Manually edit the dummy data grid to see how position sizing affects the Monte Carlo and risk models.</div>", unsafe_allow_html=True)
         st.page_link("pages/4_📊_Physical_Equity_Risk_Ledger.py", label="Launch Ledger", icon="🚀")
 
-st.markdown("<br>", unsafe_allow_html=True)
+
 col7, col8 = st.columns(2)
 
 with col7:
