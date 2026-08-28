@@ -80,7 +80,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-render_page_header("Convexity Desk", "The Institutional Quant Engine for Retail Desks. Institutional swing-trade signals and mechanical risk management.")
+render_page_header("Convexity Desk", "Institutional Quantitative Research and Risk Management.")
 
 st.markdown("### 🎛️ Active Modules")
 

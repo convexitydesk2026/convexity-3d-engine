@@ -51,13 +51,17 @@ def render_page_footer(purpose_text=""):
         st.markdown("<br>", unsafe_allow_html=True)
         
     st.warning("⚠️ **Beta Development Phase:** This platform is currently under active development. While you are welcome to explore the sandbox and interact with the modules, please note that results and simulations are not yet reliable. If you still see this header next week, it means we are continuing to polish the engine. In the meantime, feel free to tinker and use the feedback box below to report bugs!")
-    with st.expander("📬 Beta Feedback / Bug Report", expanded=False):
-        feedback = st.text_area("Tell us what's broken or what you'd like to see:", placeholder="E.g. The trajectory chart looks static...")
-        if st.button("Submit Feedback"):
-            if feedback:
-                st.success("Thanks! Your feedback has been recorded.")
-            else:
-                st.error("Please enter some feedback before submitting.")
+    with st.expander("📬 Contact Convexity Desk", expanded=False):
+        st.markdown("<p style='font-size: 14px; color: #64748b;'>Questions about the math, risk models, or quantitative philosophy? Send us a direct message below.</p>", unsafe_allow_html=True)
+        st.markdown("""
+        <form action="https://formsubmit.co/support@convexitydesk.com" method="POST">
+            <input type="text" name="name" placeholder="Your Name" required style="width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #cbd5e1;">
+            <input type="email" name="email" placeholder="Your Email" required style="width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #cbd5e1;">
+            <textarea name="message" placeholder="Your Message..." required style="width:100%; padding:8px; margin-bottom:10px; border-radius:4px; border:1px solid #cbd5e1; min-height:100px;"></textarea>
+            <input type="hidden" name="_captcha" value="false">
+            <button type="submit" style="width:100%; padding:10px; background-color:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Send Message</button>
+        </form>
+        """, unsafe_allow_html=True)
                 
     # Dynamic Quote
     quote = random.choice(TRADING_QUOTES)
@@ -129,7 +133,16 @@ def render_global_sidebar():
             
             st.checkbox("Flag as IPO / Unproven Asset")
             
-            st.radio("Entry Type", ["Initial Entry", "Scale-In (Pyramid)"], horizontal=True, label_visibility="collapsed")
+            entry_type = st.radio("Entry Type", ["Initial Entry", "Scale-In (Pyramid)"], horizontal=True, label_visibility="collapsed")
+            
+            existing_shares = 0
+            existing_avg = 0.0
+            if entry_type == "Scale-In (Pyramid)":
+                col_e1, col_e2 = st.columns(2)
+                with col_e1:
+                    existing_shares = st.number_input("Current Position (Shares)", value=100, step=1, min_value=1)
+                with col_e2:
+                    existing_avg = st.number_input("Current Avg Cost (USD)", value=90.00, step=1.0)
             
             st.selectbox("Trade Horizon (ATR Sizing)", ["Short-Term (Daily)", "Medium-Term (Weekly)", "Long-Term (Monthly)"])
             st.text_input("Ticker Symbol")
@@ -141,21 +154,46 @@ def render_global_sidebar():
                 st.selectbox("Direction", ["Long", "Short"])
                 
             st.selectbox("Asset Currency", ["USD"])
-            entry = st.number_input("Entry Price (USD)", value=100.00, step=1.0)
-            sl = st.number_input("Stop Loss Limit (USD)", value=95.00, step=1.0)
+            entry = st.number_input("Entry Price / Target (USD)", value=100.00, step=1.0)
+            sl = st.number_input("Trailing Stop / Exit (USD)", value=95.00, step=1.0)
             
             if st.button("Calculate Optimal Size", use_container_width=True):
                 risk_amt = nav * (base_risk / 100) * multiplier
-                risk_per_share = abs(entry - sl)
-                if risk_per_share > 0 and risk_amt > 0:
-                    shares = int(risk_amt / risk_per_share)
-                    capital_at_risk = shares * entry
-                    st.info(f"Optimal Size: **{shares} Shares**\n\nTotal Capital: ${capital_at_risk:,.0f}\n\n*Risk Multiplier applied: {multiplier}x*")
-                else:
-                    if multiplier == 0.0:
-                        st.error("HARD STOP: Tier 4 active. Trading halted.")
+                
+                if entry_type == "Initial Entry":
+                    risk_per_share = abs(entry - sl)
+                    if risk_per_share > 0 and risk_amt > 0:
+                        shares = int(risk_amt / risk_per_share)
+                        capital_at_risk = shares * entry
+                        st.info(f"Optimal Size: **{shares} Shares**\n\nTotal Capital: ${capital_at_risk:,.0f}\n\n*Risk Multiplier applied: {multiplier}x*")
                     else:
-                        st.error("Invalid Entry or Stop Loss")
+                        if multiplier == 0.0:
+                            st.error("HARD STOP: Tier 4 active. Trading halted.")
+                        else:
+                            st.error("Invalid Entry or Stop Loss")
+                else:
+                    # Pyramiding Logic: Risk is calculated on the COMBINED position using the new trailing stop.
+                    # Total Risk = (Total Shares) * (New Avg Cost - New Stop Loss)
+                    # We solve for New Shares (NS):
+                    # Risk = (ES + NS) * (((ES*EA) + (NS*EP))/(ES+NS) - SL)
+                    # Risk = (ES*EA + NS*EP) - SL*(ES + NS)
+                    # Risk = ES*EA + NS*EP - SL*ES - SL*NS
+                    # Risk - ES*EA + SL*ES = NS * (EP - SL)
+                    # NS = (Risk - ES(EA - SL)) / (EP - SL)
+                    
+                    if entry == sl:
+                        st.error("Entry cannot equal Stop Loss.")
+                    else:
+                        ns_float = (risk_amt - (existing_shares * abs(existing_avg - sl))) / abs(entry - sl)
+                        shares = max(0, int(ns_float))
+                        
+                        if shares == 0:
+                            st.error("Pyramid Denied: Scaling in here at this stop loss would breach your total risk budget. Move your stop loss tighter before scaling in.")
+                        else:
+                            total_shares = existing_shares + shares
+                            new_avg_cost = ((existing_shares * existing_avg) + (shares * entry)) / total_shares
+                            total_capital = total_shares * new_avg_cost
+                            st.success(f"Optimal Scale-In: **+{shares} Shares**\n\nNew Combined Position: **{total_shares} Shares**\n\nNew Avg Cost Basis: **${new_avg_cost:,.2f}**\n\nTotal Capital: ${total_capital:,.0f}")
 
 def render_page_header(title: str, subtitle: str):
     """Renders a globally consistent, institutional dark-blue header banner."""

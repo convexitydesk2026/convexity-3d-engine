@@ -42,6 +42,15 @@ logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 st.set_page_config(page_title="Master Dashboard", layout="wide")
 
+st.markdown(
+    """
+    <div style="background-color: #0f172a; padding: 25px; border-radius: 8px; margin-bottom: 25px; text-align: center; color: white;">
+        <h1 style="color: white; margin-bottom: 5px; font-size: 32px;">Estate Master Dashboard</h1>
+        <p style="color: #94a3b8; font-size: 16px; margin: 0;">Institutional Quantitative Research and Risk Management.</p>
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
 
 SYNC_SCRIPT = os.path.join(TARGET_DIR, "sync_engine.py")
 
@@ -1339,11 +1348,17 @@ with calc_placeholder.container():
                     
                     if ack_gap:
                         if calc_mode == "Scale-In (Pyramid)":
+                            new_total_shares = abs(existing_shares) + proposed_shares
+                            new_avg_cost_usd = ((abs(existing_shares) * existing_avg_usd) + (proposed_shares * entry_usd)) / new_total_shares if new_total_shares > 0 else 0
+                            new_avg_cost_local = new_avg_cost_usd / fx_rate if fx_rate > 0 else new_avg_cost_usd
+                            
                             st.markdown(f"""
                             <div style="background-color: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-top: 10px;">
                                 <div style="font-size: 11px; color: #64748b; font-weight: bold; text-transform: uppercase;">Max New Shares Authorized (Local Silo Limit)</div>
                                 <div style="font-size: 22px; font-weight: 900; color: #1d4ed8;">{proposed_shares:,}</div>
                                 <hr style="margin: 8px 0;">
+                                <div style="font-size: 12px; color: #475569;">New Combined Position: <b>{new_total_shares:,.0f} Shares</b></div>
+                                <div style="font-size: 12px; color: #475569;">New Avg Cost Basis: <b>${new_avg_cost_local:,.2f} {calc_currency}</b></div>
                                 <div style="font-size: 12px; color: #475569;">Total Allowable Risk: <b>${risk_budget_usd:,.2f}</b></div>
                                 <div style="font-size: 12px; color: {'#16a34a' if old_risk_usd < 0 else '#b91c1c'};">Old Shares Risk Consumption: <b>${old_risk_usd:,.2f}</b></div>
                                 <div style="font-size: 12px; color: #475569;">Available Risk for Scale-In: <b>${available_risk_usd:,.2f}</b></div>
