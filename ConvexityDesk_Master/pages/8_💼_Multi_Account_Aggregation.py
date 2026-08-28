@@ -67,7 +67,7 @@ data = {
     "Entity": ["GLOBAL PORTFOLIO", "S&P 500 (SPY)", "NASDAQ 100 (QQQ)"],
     "Balance": [f"${global_nav:,.0f}", "-", "-"],
     "IRR": [f"{metrics['Global']['irr']:.2f}%", f"{spy_metrics['irr']:.2f}%", f"{qqq_metrics['irr']:.2f}%"],
-    "PnL": [f"${metrics['Global']['total_pnl']:,.0f}", f"${spy_metrics['total_pnl']:,.0f}", f"${qqq_metrics['total_pnl']:,.0f}"],
+    "PnL": [f"${metrics['Global']['pnl']:,.0f}", f"${spy_metrics['pnl']:,.0f}", f"${qqq_metrics['pnl']:,.0f}"],
     "Sharpe": [f"{metrics['Global']['sharpe']:.2f}", f"{spy_metrics['sharpe']:.2f}", f"{qqq_metrics['sharpe']:.2f}"],
     "Max DD": [f"-{metrics['Global']['max_dd_pct']:.2f}%", f"-{spy_metrics['max_dd_pct']:.2f}%", f"-{qqq_metrics['max_dd_pct']:.2f}%"],
     "DD Days": [f"{int(metrics['Global'].get('dd_days', 32))} d", "-", "-"],

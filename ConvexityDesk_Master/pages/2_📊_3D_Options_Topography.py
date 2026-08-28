@@ -107,7 +107,7 @@ init_global_state()
 
 # Filter Master Ledger for active options
 master_df = st.session_state.master_ledger
-options_df = master_df[(master_df['Class'] == 'Option') & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
+options_df = master_df[(master_df['Class'].isin(['Option', 'Options'])) & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
 
 if options_df.empty:
     st.warning("⚠️ No active options positions detected in the Sandbox. The 3D Engine is currently in standby. To explore this tool's capabilities, please add dummy options trades to the grid in the Educational Risk Ledger Sandbox.")
@@ -199,7 +199,7 @@ with tab1:
     st.markdown("<div style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>To interact with the 3D engine below, expand the <b>⚙️ Options Trade Parameters</b> sidebar to configure arbitrary structures. This ledger solely displays your current open derivatives from the Sandbox.</div>", unsafe_allow_html=True)
     @st.cache_data
     def load_dummy_options_ledger(spot_p, _master_df):
-        opts = _master_df[_master_df['Class'] == 'Option'].copy()
+        opts = _master_df[_master_df['Class'].isin(['Option', 'Options'])].copy()
         data = []
         for _, row in opts.iterrows():
             try:
@@ -585,7 +585,7 @@ with tab2:
     st.markdown("This dashboard represents real-world performance of the Volatility Risk Premium (VRP) strategy based on closed options in your Master Ledger.")
     
     master_df = st.session_state.master_ledger
-    closed_options = master_df[(master_df['Class'] == 'Option') & master_df['Exit Price'].notna() & (master_df['Exit Price'] != '')].copy()
+    closed_options = master_df[(master_df['Class'].isin(['Option', 'Options'])) & master_df['Exit Price'].notna() & (master_df['Exit Price'] != '')].copy()
     
     if not closed_options.empty:
         closed_options['CloseDate'] = pd.to_datetime(closed_options['Exit Date'])
