@@ -502,3 +502,50 @@ def compute_daily_trajectory(df_input):
     res['opt_dir'] = np.where(res['spy'] > hist_data['spy_sma50'].values, 'Bull', 'Bear')
     
     return res
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def calculate_portfolio_balances(df_input, initial_nav_per_silo=25000):
+    import yfinance as yf
+    tickers = df_input['Ticker'].dropna().unique().tolist()
+    if not tickers:
+        return {'Global': initial_nav_per_silo*4, 'A': initial_nav_per_silo, 'B': initial_nav_per_silo, 'C': initial_nav_per_silo, 'D': initial_nav_per_silo}
+    try:
+        hist_data = yf.download(tickers, period='5d', progress=False, auto_adjust=False)['Close']
+        if len(tickers) == 1:
+            hist_data = pd.DataFrame({tickers[0]: hist_data})
+    except:
+        hist_data = pd.DataFrame()
+    
+    balances = {'A': initial_nav_per_silo, 'B': initial_nav_per_silo, 'C': initial_nav_per_silo, 'D': initial_nav_per_silo}
+    
+    for i, row in df_input.iterrows():
+        silo = row['Silo']
+        if silo not in balances: continue
+        
+        shares = float(row.get('Shares', 0))
+        entry_price = float(row.get('Entry Price', 0))
+        cost = shares * entry_price
+        
+        exit_price = row.get('Exit Price')
+        if pd.notna(exit_price) and exit_price != '':
+            # Closed position
+            pnl = (float(exit_price) - entry_price) * shares
+            if row.get('Class') == 'Options':
+                pnl = (float(exit_price) - entry_price) * shares * 100
+            balances[silo] += pnl
+        else:
+            # Open position
+            ticker = row.get('Ticker')
+            spot = entry_price
+            if not hist_data.empty and ticker in hist_data.columns:
+                series = hist_data[ticker].dropna()
+                if not series.empty:
+                    spot = float(series.iloc[-1])
+            pnl = (spot - entry_price) * shares
+            if row.get('Class') == 'Options':
+                pnl = (spot - entry_price) * shares * 100
+            balances[silo] += pnl
+            
+    balances['Global'] = sum([balances['A'], balances['B'], balances['C'], balances['D']])
+    return balances

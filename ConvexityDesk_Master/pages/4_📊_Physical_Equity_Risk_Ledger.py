@@ -133,13 +133,21 @@ def compute_live_ledger(df_input):
         
     res_df = pd.DataFrame(data)
     if not res_df.empty:
-        global_nav = 1000000 # Dummy global NAV
+        
+        from public_core_math import calculate_portfolio_balances
+        bals = calculate_portfolio_balances(st.session_state.master_ledger)
+        global_nav = bals['Global']
+
         res_df['Global Portfolio %'] = (res_df['Market Value'] / global_nav) * 100
     return res_df
 
 df_alpha = compute_live_ledger(equity_df)
 st.markdown("---")
-global_nav = 972000  # Approximated from 2.55% of 24.7k
+
+from public_core_math import calculate_portfolio_balances
+bals = calculate_portfolio_balances(st.session_state.master_ledger)
+global_nav = bals['Global']
+
 
 # UI Construction
 expander = st.expander("📉 View Physical Equity Risk Ledger", expanded=True)
