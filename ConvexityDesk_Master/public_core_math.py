@@ -199,9 +199,9 @@ def render_page_header(title: str, subtitle: str):
     """Renders a globally consistent, institutional dark-blue header banner."""
     st.markdown(
         f"""
-        <div style="background-color: #0f172a; padding: 30px; border-radius: 8px; margin-bottom: 30px; text-align: center; color: white;">
-            <h1 style="color: white; margin-bottom: 10px; font-size: 32px;">{title}</h1>
-            <p style="color: #94a3b8; font-size: 16px; margin: 0;">{subtitle}</p>
+        <div style="background: linear-gradient(90deg, #1e1b4b 0%, #4c1d95 60%, #9d174d 100%); padding: 30px; border-radius: 8px; margin-bottom: 30px; text-align: center; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);">
+            <h1 style="color: white; margin-bottom: 10px; font-size: 32px; font-weight: 800; letter-spacing: -0.5px;">{title}</h1>
+            <p style="color: #e2e8f0; font-size: 16px; margin: 0; font-weight: 500;">{subtitle}</p>
         </div>
         """, 
         unsafe_allow_html=True
