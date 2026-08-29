@@ -74,8 +74,22 @@ def render_page_footer(purpose_text=""):
 
 def render_global_sidebar():
     """Renders the global Alpha Risk Calculator & HWM Budget on the sidebar for all pages."""
-    
     with st.sidebar:
+        st.markdown("### Data Source")
+        portfolio_mode = st.radio(
+            "Select Ledger",
+            ["Educational Sandbox", "Live Portfolio"],
+            index=0 if st.session_state.get('portfolio_mode', 'Educational Sandbox') == 'Educational Sandbox' else 1,
+            label_visibility="collapsed",
+            key="_portfolio_mode_selector"
+        )
+        if portfolio_mode != st.session_state.get('portfolio_mode'):
+            st.session_state.portfolio_mode = portfolio_mode
+            if 'master_ledger' in st.session_state:
+                del st.session_state['master_ledger']
+            st.rerun()
+            
+        st.divider()
         st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
         st.caption("[Read the mathematical methodology here](https://convexitydesk.com/the-math-behind-the-alpha-risk-calculator/)")
         
@@ -210,18 +224,29 @@ def render_page_header(title: str, subtitle: str):
 
 def init_global_state():
     """Initializes the Master Ledger in st.session_state if it doesn't exist."""
+    if 'portfolio_mode' not in st.session_state:
+        st.session_state.portfolio_mode = 'Educational Sandbox'
+        
     if 'master_ledger' not in st.session_state:
-        # Load Dummy Data from CSV to allow admin to curate the sandbox
-        csv_path = Path(__file__).parent / "dummy_portfolio.csv"
-        try:
-            df = pd.read_csv(csv_path, parse_dates=['Entry Date', 'Exit Date', 'Expiry'])
-            # Ensure proper types
+        if st.session_state.portfolio_mode == 'Educational Sandbox':
+            # Load Dummy Data from CSV to allow admin to curate the sandbox
+            csv_path = Path(__file__).parent / "dummy_portfolio.csv"
+            try:
+                df = pd.read_csv(csv_path, parse_dates=['Entry Date', 'Exit Date', 'Expiry'])
+                for col in ['Entry Date', 'Exit Date', 'Expiry']:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                st.session_state.master_ledger = df
+            except Exception as e:
+                st.error(f"Error loading dummy_portfolio.csv: {e}")
+                st.session_state.master_ledger = pd.DataFrame()
+        else:
+            # Live Portfolio: Empty Schema until PostgreSQL is hooked up
+            schema = ['Silo', 'Class', 'Strategy', 'Ticker', 'Entry Date', 'Exit Date', 'Shares', 'Entry Price', 'Exit Price', 'Stop Loss', 'Strike', 'Expiry', 'Short Put', 'Long Put', 'Short Call', 'Long Call']
+            df = pd.DataFrame(columns=schema)
+            # Ensure datetime columns are strictly datetime64[ns] to avoid crash when filtering
             for col in ['Entry Date', 'Exit Date', 'Expiry']:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
             st.session_state.master_ledger = df
-        except Exception as e:
-            st.error(f"Error loading dummy_portfolio.csv: {e}")
-            st.session_state.master_ledger = pd.DataFrame()
 
 def verify_license_key():
     """
