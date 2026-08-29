@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
-from datetime import date, timedelta
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -14,7 +12,7 @@ render_global_sidebar()
 init_global_state()
 
 # MOBILE BLOCKER
-st.markdown("""
+st.markdown('''
     <style>
         .mobile-blocker { display: none; }
         @media (max-width: 768px) { 
@@ -32,47 +30,16 @@ st.markdown("""
         <p style="font-size: 16px; line-height: 1.5;">The Convexity Desk interactive tools are optimized exclusively for desktop monitors.</p>
         <p style="font-size: 16px; line-height: 1.5; color: #a1a1aa;">Please visit <b>convexitydesk.com</b> on your computer to access the platform.</p>
     </div>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
-data_source = st.radio("Select Data Source", ["Educational Sandbox", "GOAT Model Portfolio"], horizontal=True, label_visibility="collapsed")
-
-if data_source == "GOAT Model Portfolio":
-    render_page_header("🏆 GOAT Model Portfolio Trajectory", "Replicate and analyze institutional equity curve trajectories.")
+# Dynamic Header based on Global State
+mode = st.session_state.get('portfolio_mode', 'Educational Sandbox')
+if mode == 'Educational Sandbox':
+    render_page_header("📊 Educational Sandbox Trajectory", "Analyze and journal the equity curve of your dummy trades side-by-side with institutional benchmarks.")
 else:
-    render_page_header("📊 Educational Sandbox Trajectory", "Replicate and analyze institutional equity curve trajectories.")
+    render_page_header("📈 Live Portfolio Trajectory", "Analyze and journal the equity curve of your live trades side-by-side with institutional benchmarks.")
 
-@st.cache_data(ttl=86400)
-def get_historical_close(ticker, target_date):
-    try:
-        data = yf.download(ticker, start=target_date.strftime('%Y-%m-%d'), end=(target_date + timedelta(days=5)).strftime('%Y-%m-%d'), progress=False)
-        if not data.empty:
-            if isinstance(data.columns, pd.MultiIndex):
-                return float(data['Close'][ticker].iloc[0])
-            return float(data['Close'].iloc[0])
-    except:
-        pass
-    return 100.0
-
-today = date.today()
-d_250 = today - timedelta(days=250)
-d_200 = today - timedelta(days=200)
-d_150 = today - timedelta(days=150)
-d_100 = today - timedelta(days=100)
-d_50 = today - timedelta(days=50)
-
-goat_data = [
-    {'Ticker': 'NVDA', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_250, 'Entry Price': get_historical_close('NVDA', d_250), 'Shares': 200, 'Stop Loss': 130.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
-    {'Ticker': 'PLTR', 'Class': 'Equity', 'Silo': 'B', 'Entry Date': d_200, 'Entry Price': get_historical_close('PLTR', d_200), 'Shares': 300, 'Stop Loss': 100.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
-    {'Ticker': 'META', 'Class': 'Equity', 'Silo': 'C', 'Entry Date': d_150, 'Entry Price': get_historical_close('META', d_150), 'Shares': 50, 'Stop Loss': 480.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
-    {'Ticker': 'HOOD', 'Class': 'Equity', 'Silo': 'D', 'Entry Date': d_100, 'Entry Price': get_historical_close('HOOD', d_100), 'Shares': 1000, 'Stop Loss': 18.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''},
-    {'Ticker': 'V', 'Class': 'Equity', 'Silo': 'A', 'Entry Date': d_50, 'Entry Price': get_historical_close('V', d_50), 'Shares': 100, 'Stop Loss': 255.0, 'Exit Date': None, 'Exit Price': None, 'Strike': None, 'Expiry': ''}
-]
-
-if data_source == "GOAT Model Portfolio":
-    equity_df = pd.DataFrame(goat_data)
-else:
-    master_df = st.session_state.master_ledger
-    equity_df = master_df.copy()
+equity_df = st.session_state.master_ledger.copy()
 
 if equity_df.empty:
     st.warning("⚠️ No physical equity positions found in Master Ledger. The PnL Trajectory is in Standby Mode.")
@@ -89,10 +56,10 @@ df['qqq_usd_cum'] = df['qqq_cum'] * initial_nav
 df['rsp_usd_cum'] = df['rsp_cum'] * initial_nav
 df['cum_return'] = df['cum_pnl'] / initial_nav
 
-if data_source == "Educational Sandbox":
+if mode == "Educational Sandbox":
     privacy_mode = st.toggle("Enable Privacy Mode (Hide Absolute Values)", value=False)
 else:
-    privacy_mode = False
+    privacy_mode = st.toggle("Enable Privacy Mode (Hide Absolute Values)", value=True)
 
 fig_pnl = go.Figure()
 
@@ -171,10 +138,10 @@ fig_pnl.update_layout(
 
 st.plotly_chart(fig_pnl, use_container_width=True)
 
-st.markdown("""
+st.markdown('''
 <div style='font-size: 12px; color: #64748b; margin-top: -15px; margin-bottom: 20px; text-align: center;'>
     <b>Legend:</b> The numbered squares represent the <b>Alpha Engine (Regime Gear 0-5)</b>, determining aggressive vs. defensive posture. <a href="https://convexitydesk.com/the-mechanical-engine-decoding-regime-math-gear-0-5/" target="_blank" style="color: #60a5fa; text-decoration: none;">Want to know more about Regime math?</a>
 </div>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
 render_page_footer("The Daily PnL Trajectory engine overlays your realized PnL curve on top of the Alpha Engine's regime shifts. It exposes exactly how your portfolio scales (or fails) in distinct market environments.")
