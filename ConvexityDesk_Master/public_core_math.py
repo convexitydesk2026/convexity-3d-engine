@@ -74,6 +74,18 @@ def render_page_footer(purpose_text=""):
 
 def render_global_sidebar():
     """Renders the global Alpha Risk Calculator & HWM Budget on the sidebar for all pages."""
+    st.markdown("""
+        <style>
+            div[data-testid="stSidebarNav"] li:nth-child(1) span {
+                font-weight: bold !important;
+                text-transform: uppercase !important;
+                font-size: 16px !important;
+            }
+            div[data-testid="stSidebarNav"] li:nth-child(1) span::after {
+                content: " MODULES";
+            }
+        </style>
+    """, unsafe_allow_html=True)
     with st.sidebar:
         st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
         st.caption("[Read the mathematical methodology here](https://convexitydesk.com/the-math-behind-the-alpha-risk-calculator/)")
