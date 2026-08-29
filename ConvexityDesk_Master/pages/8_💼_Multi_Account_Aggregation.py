@@ -70,7 +70,7 @@ else:
 # Dynamic Aggregation Table
 data = {
     "Entity": ["GLOBAL PORTFOLIO", "S&P 500 (SPY)", "NASDAQ 100 (QQQ)"],
-    "Balance": [f"${global_nav:,.0f}", "-", "-"],
+    "Balance": [f"${global_nav:,.0f}", f"${100000 + spy_metrics['pnl']:,.0f}", f"${100000 + qqq_metrics['pnl']:,.0f}"],
     "IRR": [f"{metrics['Global']['irr']:.2f}%", f"{spy_metrics['irr']:.2f}%", f"{qqq_metrics['irr']:.2f}%"],
     "PnL": [f"${metrics['Global']['pnl']:,.0f}", f"${spy_metrics['pnl']:,.0f}", f"${qqq_metrics['pnl']:,.0f}"],
     "Sharpe": [f"{metrics['Global']['sharpe']:.2f}", f"{spy_metrics['sharpe']:.2f}", f"{qqq_metrics['sharpe']:.2f}"],
@@ -90,13 +90,24 @@ st.markdown("<div style='text-align: center; color: #64748b; font-size: 12px; ma
 
 col1, col2, col3, col4 = st.columns(4)
 
-def plot_mini_chart(color, pnl_array, seed=25000):
+def plot_mini_chart(color, pnl_array, spy_array=None, qqq_array=None, seed=25000):
     fig = go.Figure()
+    
+    if spy_array is not None and len(spy_array) > 0:
+        spy_vals = seed + np.cumsum(spy_array)
+        fig.add_trace(go.Scatter(y=spy_vals, mode='lines', line=dict(color='#3b82f6', width=1.5)))
+        
+    if qqq_array is not None and len(qqq_array) > 0:
+        qqq_vals = seed + np.cumsum(qqq_array)
+        fig.add_trace(go.Scatter(y=qqq_vals, mode='lines', line=dict(color='#ef4444', width=1.5)))
+        
     if pnl_array is None or len(pnl_array) == 0:
         y_vals = np.cumsum(np.random.normal(0.001, 0.01, 100))
     else:
         y_vals = seed + np.cumsum(pnl_array)
-    fig.add_trace(go.Scatter(y=y_vals, mode='lines', line=dict(color='black', width=2)))
+        
+    fig.add_trace(go.Scatter(y=y_vals, mode='lines', line=dict(color='black', width=2.5)))
+    
     fig.update_layout(
         height=150, margin=dict(l=0, r=0, t=0, b=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
@@ -108,25 +119,29 @@ def plot_mini_chart(color, pnl_array, seed=25000):
 with col1:
     st.markdown("#### Account A (Core 401K)")
     st.caption(f"Bal: ${bals['A']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#86efac", traj['silo_a_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown("<div style='font-size: 10px; font-weight: bold;'><span style='color:black'>― Bal</span> | <span style='color:#3b82f6'>― SPY</span> | <span style='color:#ef4444'>― QQQ</span></div>", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#86efac", traj['silo_a_pnl'].values if not traj.empty else None, spy_pct_returns * 25000 if not traj.empty else None, qqq_pct_returns * 25000 if not traj.empty else None), use_container_width=True)
     st.markdown(f"IRR: {metrics['A']['irr']:.2f}% <br> Sharpe: {metrics['A']['sharpe']:.2f} <br> Max DD: -{metrics['A']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 with col2:
     st.markdown("#### Account B (High Beta)")
     st.caption(f"Bal: ${bals['B']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#93c5fd", traj['silo_b_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown("<div style='font-size: 10px; font-weight: bold;'><span style='color:black'>― Bal</span> | <span style='color:#3b82f6'>― SPY</span> | <span style='color:#ef4444'>― QQQ</span></div>", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#93c5fd", traj['silo_b_pnl'].values if not traj.empty else None, spy_pct_returns * 25000 if not traj.empty else None, qqq_pct_returns * 25000 if not traj.empty else None), use_container_width=True)
     st.markdown(f"IRR: {metrics['B']['irr']:.2f}% <br> Sharpe: {metrics['B']['sharpe']:.2f} <br> Max DD: -{metrics['B']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 with col3:
     st.markdown("#### Account C (Speculative)")
     st.caption(f"Bal: ${bals['C']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#c084fc", traj['silo_c_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown("<div style='font-size: 10px; font-weight: bold;'><span style='color:black'>― Bal</span> | <span style='color:#3b82f6'>― SPY</span> | <span style='color:#ef4444'>― QQQ</span></div>", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#c084fc", traj['silo_c_pnl'].values if not traj.empty else None, spy_pct_returns * 25000 if not traj.empty else None, qqq_pct_returns * 25000 if not traj.empty else None), use_container_width=True)
     st.markdown(f"IRR: {metrics['C']['irr']:.2f}% <br> Sharpe: {metrics['C']['sharpe']:.2f} <br> Max DD: -{metrics['C']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 with col4:
     st.markdown("#### Account D (Options / VRP)")
     st.caption(f"Bal: ${bals['D']:,.2f}")
-    st.plotly_chart(plot_mini_chart("#fcd34d", traj['silo_d_pnl'].values if not traj.empty else None), use_container_width=True)
+    st.markdown("<div style='font-size: 10px; font-weight: bold;'><span style='color:black'>― Bal</span> | <span style='color:#3b82f6'>― SPY</span> | <span style='color:#ef4444'>― QQQ</span></div>", unsafe_allow_html=True)
+    st.plotly_chart(plot_mini_chart("#fcd34d", traj['silo_d_pnl'].values if not traj.empty else None, spy_pct_returns * 25000 if not traj.empty else None, qqq_pct_returns * 25000 if not traj.empty else None), use_container_width=True)
     st.markdown(f"IRR: {metrics['D']['irr']:.2f}% <br> Sharpe: {metrics['D']['sharpe']:.2f} <br> Max DD: -{metrics['D']['max_dd_pct']:.2f}%", unsafe_allow_html=True)
 
 st.markdown("---")
