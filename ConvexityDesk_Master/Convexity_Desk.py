@@ -84,8 +84,8 @@ render_page_header("Convexity Desk", "Institutional Quantitative Research and Ri
 
 st.markdown("### 🎛️ Active Modules")
 
-# Create a 2x2 grid of premium cards
-col1, col2 = st.columns(2)
+# Create a 3x3 grid of premium cards
+col1, col2, col3 = st.columns(3)
 
 with col1:
     with st.container(border=True):
@@ -99,14 +99,13 @@ with col2:
         st.markdown("<div class='card-desc'>Visualize complex Gamma cliffs, Theta glide paths, and Volatility shocks on your live credit spreads using interactive 3D surface plane intersections.</div>", unsafe_allow_html=True)
         st.page_link("pages/7_📊_3D_Options_Topography.py", label="Launch Engine", icon="🚀")
 
-
-col3, col4 = st.columns(2)
-
 with col3:
     with st.container(border=True):
         st.markdown("#### 🌊 Market Flow Matrix")
         st.markdown("<div class='card-desc'>Access real-time global institutional rotation data. Instantly identify Momentum Breakouts, Bottom Fishing, and covert Institutional Distribution.</div>", unsafe_allow_html=True)
         st.page_link("pages/4_🌊_Market_Flow_Matrix.py", label="Launch Matrix", icon="🚀")
+
+col4, col5, col6 = st.columns(3)
 
 with col4:
     with st.container(border=True):
@@ -114,23 +113,19 @@ with col4:
         st.markdown("<div class='card-desc'>Strict mechanical checklist to guarantee pristine trade execution. Mitigate emotional bias by running trades through the pre-flight quantitative filter.</div>", unsafe_allow_html=True)
         st.page_link("pages/8_🛩️_Options_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
 
-
-col5, col6 = st.columns(2)
-
 with col5:
     with st.container(border=True):
-        st.markdown("#### 📈 GOAT Model Portfolio Trajectory")
+        st.markdown("#### 📈 GOAT Trajectory")
         st.markdown("<div class='card-desc'>Track the hypothetical historical performance of the 🔥 GOAT Alpha Engine signals against major benchmarks to verify our quantitative edge.</div>", unsafe_allow_html=True)
         st.page_link("pages/2_📈_Daily_PnL_Trajectory.py", label="Launch Trajectory", icon="🚀")
 
 with col6:
     with st.container(border=True):
-        st.markdown("#### 📊 Educational Risk Ledger Sandbox")
+        st.markdown("#### 📊 Risk Ledger Sandbox")
         st.markdown("<div class='card-desc'>An ephemeral sandbox ledger. Manually edit the dummy data grid to see how position sizing affects the Monte Carlo and risk models.</div>", unsafe_allow_html=True)
         st.page_link("pages/1_📊_Physical_Equity_Risk_Ledger.py", label="Launch Ledger", icon="🚀")
 
-
-col7, col8 = st.columns(2)
+col7, col8, col9 = st.columns(3)
 
 with col7:
     with st.container(border=True):
@@ -143,6 +138,12 @@ with col8:
         st.markdown("#### 💼 Multi-Account Aggregation")
         st.markdown("<div class='card-desc'>Consolidate disparate accounts (401k, Swing, Options) into a singular risk profile. Monitor global beta and true portfolio correlation.</div>", unsafe_allow_html=True)
         st.page_link("pages/6_💼_Multi_Account_Aggregation.py", label="Launch Aggregation", icon="🚀")
+
+with col9:
+    with st.container(border=True):
+        st.markdown("#### 📖 Glossary & References")
+        st.markdown("<div class='card-desc'>Key institutional terms, mathematical methodologies, and foundational reference material for the Convexity Engine ecosystem.</div>", unsafe_allow_html=True)
+        st.page_link("pages/9_📖_Glossary_and_References.py", label="Launch Glossary", icon="🚀")
 
 st.divider()
 
