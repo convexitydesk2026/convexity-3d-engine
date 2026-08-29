@@ -91,13 +91,13 @@ with col1:
     with st.container(border=True):
         st.markdown("#### 🎲 Monte Carlo Simulator")
         st.markdown("<div class='card-desc'>Stress-test win/loss ratios across 10,000 reshuffled realities to determine Risk of Ruin and empirical statistical edge based on your historical trades.</div>", unsafe_allow_html=True)
-        st.page_link("pages/1_🎲_Monte_Carlo_Simulator.py", label="Launch Simulator", icon="🚀")
+        st.page_link("pages/3_🎲_Monte_Carlo_Simulator.py", label="Launch Simulator", icon="🚀")
 
 with col2:
     with st.container(border=True):
         st.markdown("#### 📊 3D Options Topography")
         st.markdown("<div class='card-desc'>Visualize complex Gamma cliffs, Theta glide paths, and Volatility shocks on your live credit spreads using interactive 3D surface plane intersections.</div>", unsafe_allow_html=True)
-        st.page_link("pages/2_📊_3D_Options_Topography.py", label="Launch Engine", icon="🚀")
+        st.page_link("pages/7_📊_3D_Options_Topography.py", label="Launch Engine", icon="🚀")
 
 
 col3, col4 = st.columns(2)
@@ -106,13 +106,13 @@ with col3:
     with st.container(border=True):
         st.markdown("#### 🌊 Market Flow Matrix")
         st.markdown("<div class='card-desc'>Access real-time global institutional rotation data. Instantly identify Momentum Breakouts, Bottom Fishing, and covert Institutional Distribution.</div>", unsafe_allow_html=True)
-        st.page_link("pages/5_🌊_Market_Flow_Matrix.py", label="Launch Matrix", icon="🚀")
+        st.page_link("pages/4_🌊_Market_Flow_Matrix.py", label="Launch Matrix", icon="🚀")
 
 with col4:
     with st.container(border=True):
         st.markdown("#### 🛩️ Options Pre-Flight Matrix")
         st.markdown("<div class='card-desc'>Strict mechanical checklist to guarantee pristine trade execution. Mitigate emotional bias by running trades through the pre-flight quantitative filter.</div>", unsafe_allow_html=True)
-        st.page_link("pages/6_🛩️_Options_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
+        st.page_link("pages/8_🛩️_Options_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
 
 
 col5, col6 = st.columns(2)
@@ -121,13 +121,13 @@ with col5:
     with st.container(border=True):
         st.markdown("#### 📈 GOAT Model Portfolio Trajectory")
         st.markdown("<div class='card-desc'>Track the hypothetical historical performance of the 🔥 GOAT Alpha Engine signals against major benchmarks to verify our quantitative edge.</div>", unsafe_allow_html=True)
-        st.page_link("pages/3_📈_Daily_PnL_Trajectory.py", label="Launch Trajectory", icon="🚀")
+        st.page_link("pages/2_📈_Daily_PnL_Trajectory.py", label="Launch Trajectory", icon="🚀")
 
 with col6:
     with st.container(border=True):
         st.markdown("#### 📊 Educational Risk Ledger Sandbox")
         st.markdown("<div class='card-desc'>An ephemeral sandbox ledger. Manually edit the dummy data grid to see how position sizing affects the Monte Carlo and risk models.</div>", unsafe_allow_html=True)
-        st.page_link("pages/4_📊_Physical_Equity_Risk_Ledger.py", label="Launch Ledger", icon="🚀")
+        st.page_link("pages/1_📊_Physical_Equity_Risk_Ledger.py", label="Launch Ledger", icon="🚀")
 
 
 col7, col8 = st.columns(2)
@@ -136,13 +136,13 @@ with col7:
     with st.container(border=True):
         st.markdown("#### 🔥 GOAT Alpha Engine")
         st.markdown("<div class='card-desc'>Premium signal generation. Track Qullamaggie Episodic Pivots, 13F institutional accumulation bases, and live Squawk Box macro alerts.</div>", unsafe_allow_html=True)
-        st.page_link("pages/7_🔥_GOAT_Alpha_Engine.py", label="Launch Alpha Engine", icon="🚀")
+        st.page_link("pages/5_🔥_GOAT_Alpha_Engine.py", label="Launch Alpha Engine", icon="🚀")
 
 with col8:
     with st.container(border=True):
         st.markdown("#### 💼 Multi-Account Aggregation")
         st.markdown("<div class='card-desc'>Consolidate disparate accounts (401k, Swing, Options) into a singular risk profile. Monitor global beta and true portfolio correlation.</div>", unsafe_allow_html=True)
-        st.page_link("pages/8_💼_Multi_Account_Aggregation.py", label="Launch Aggregation", icon="🚀")
+        st.page_link("pages/6_💼_Multi_Account_Aggregation.py", label="Launch Aggregation", icon="🚀")
 
 st.divider()
 

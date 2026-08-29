@@ -264,7 +264,7 @@ with tab1:
         *   **🔵 HOLD:** You should hold existing positions but do not open new ones. This usually triggers when implied volatility is too low (premiums are cheap) or the market trend is too dangerous to fade.
         *   **🔴 BANNED (AVOID):** The mathematical probability of loss is extremely high. (e.g., Selling Bear Calls during a raging bull market where SPY is above its 50-day moving average).
         """)
-        st.page_link("pages/6_🛩️_Options_Pre_Flight_Matrix.py", label="View live market diagnostics on the Pre-Flight Matrix", icon="🛩️")
+        st.page_link("pages/8_🛩️_Options_Pre_Flight_Matrix.py", label="View live market diagnostics on the Pre-Flight Matrix", icon="🛩️")
     
     st.markdown("---")
     st.markdown("### 3D Volatility Surface Stress Tester")
