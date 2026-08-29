@@ -140,10 +140,8 @@ with col8:
         st.page_link("pages/6_💼_Multi_Account_Aggregation.py", label="Launch Aggregation", icon="🚀")
 
 with col9:
-    with st.container(border=True):
-        st.markdown("#### 📖 Glossary & References")
-        st.markdown("<div class='card-desc'>Key institutional terms, mathematical methodologies, and foundational reference material for the Convexity Engine ecosystem.</div>", unsafe_allow_html=True)
-        st.page_link("pages/9_📖_Glossary_and_References.py", label="Launch Glossary", icon="🚀")
+    # Glossary moved to convexitydesk.com
+    pass
 
 st.divider()
 
