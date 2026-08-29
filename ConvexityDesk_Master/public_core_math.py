@@ -465,9 +465,21 @@ def compute_daily_trajectory(df_input):
                 
                 is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
                 if is_option:
-                    pct_change = 0.05 # Fixed dummy +5% profit
-                    current_premium = entry_price * 1.05 # 2x leverage dummy factor
-                    pnl = shares * (current_premium - entry_price) * 100
+                    if exit_dt.year >= 2099: # Currently open
+                        pct_change = 0.05
+                        current_premium = entry_price * 1.05 
+                        pnl = shares * (current_premium - entry_price) * 100
+                    else: # Historically active
+                        total_days = (exit_dt - entry_dt).days
+                        current_day = (d - entry_dt).days
+                        progress = current_day / total_days if total_days > 0 else 1
+                        
+                        exit_price_val = float(row['Exit Price']) if pd.notna(row['Exit Price']) and row['Exit Price'] != '' else entry_price
+                        final_pnl = shares * (exit_price_val - entry_price) * 100
+                        
+                        spy_pct = (spot - actual_entry) / actual_entry if actual_entry > 0 else 0
+                        pnl = final_pnl * progress + (abs(final_pnl) * spy_pct * 0.5)
+                        if current_day == total_days: pnl = final_pnl
                 else:
                     pnl = shares * (spot - actual_entry)
             else:
