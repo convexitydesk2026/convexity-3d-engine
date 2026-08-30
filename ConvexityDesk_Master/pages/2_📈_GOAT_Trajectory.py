@@ -57,7 +57,7 @@ df['rsp_usd_cum'] = df['rsp_cum'] * initial_nav
 df['cum_return'] = df['cum_pnl'] / initial_nav
 
 if mode == "Educational Sandbox":
-    privacy_mode = st.toggle("Enable Privacy Mode (Hide Absolute Values)", value=False)
+    privacy_mode = False
 else:
     privacy_mode = st.toggle("Enable Privacy Mode (Hide Absolute Values)", value=True)
 

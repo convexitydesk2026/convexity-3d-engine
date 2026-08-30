@@ -105,6 +105,12 @@ render_page_header("3D Options Topography & Gamma Cliffs", "Visualizing the Gamm
 # Initialize Global State
 init_global_state()
 
+is_sandbox = st.session_state.get('portfolio_mode', 'Educational Sandbox') == 'Educational Sandbox'
+if is_sandbox:
+    st.warning("⚠️ **DATA SOURCE WARNING:** You are currently in the **Educational Sandbox**. The underlying prices, implied volatilities, and Greeks are simulated for training purposes. Toggle to 'Live Portfolio' in the sidebar to render live IBKR market data.")
+else:
+    st.success("🟢 **LIVE PORTFOLIO ACTIVE:** The 3D Options Topography Engine is actively connected to your database and rendering live market data.")
+
 # Filter Master Ledger for active options
 master_df = st.session_state.master_ledger
 options_df = master_df[(master_df['Class'].isin(['Option', 'Options'])) & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
@@ -133,61 +139,92 @@ if 'trade_params' not in st.session_state:
 # 4. SIDEBAR
 # ==========================================
 with st.sidebar:
-    st.markdown("### ⚙️ Options Trade Parameters")
-    
-    strats = ["VRP: Bull Put Spread", "VRP: Bear Call Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"]
-    current_strat = st.session_state.trade_params.get('strategy', "VRP: Bull Put Spread")
-    strat_sel = st.selectbox("Select Options Strategy", strats, index=strats.index(current_strat))
+    with st.expander("⚙️ Options Trade Parameters", expanded=True):
+        strats = ["VRP: Bull Put Spread", "VRP: Bear Call Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"]
+        current_strat = st.session_state.trade_params.get('strategy', "VRP: Bull Put Spread")
+        strat_sel = st.selectbox("Select Options Strategy", strats, index=strats.index(current_strat))
 
-    with st.form("trade_form"):
-        tckr_input = st.text_input("Ticker Symbol (SPY, NDX, etc.)", value=st.session_state.trade_params['ticker'])
-        dte_input = st.number_input("Days to Expiration (DTE)", value=float(st.session_state.trade_params['dte']))
-        
-        if strat_sel == "VRP: Bull Put Spread":
-            ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']))
-            kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']))
-            kcs_input, kcl_input = 0.0, 0.0
-        elif strat_sel == "VRP: Bear Call Spread":
-            ks_input = st.number_input("Short Call Strike", value=float(st.session_state.trade_params.get('k_cs', st.session_state.trade_params['k_s'])))
-            kl_input = st.number_input("Long Call Strike", value=float(st.session_state.trade_params.get('k_cl', st.session_state.trade_params['k_l'])))
-            kcs_input, kcl_input = 0.0, 0.0
-        elif strat_sel == "VRP: Iron Condor":
-            st.markdown("**Put Wing**")
-            ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']))
-            kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']))
-            st.markdown("**Call Wing**")
-            kcs_input = st.number_input("Short Call Strike", value=float(st.session_state.trade_params.get('k_cs', 580)))
-            kcl_input = st.number_input("Long Call Strike", value=float(st.session_state.trade_params.get('k_cl', 605)))
-        elif strat_sel == "Deep OTM Tail Hedge (Long Put)":
-            ks_input = 0.0
-            kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']))
-            kcs_input, kcl_input = 0.0, 0.0
-
-        qty_input = st.number_input("Contracts", value=float(st.session_state.trade_params['qty']))
-        
-        submit = st.form_submit_button("Update Topography", type="primary")
-        
-        if submit:
-            new_spot, new_vix = get_live_market_data(tckr_input)
+        with st.form("trade_form"):
+            tckr_input = st.text_input("Ticker Symbol (SPY, NDX, etc.)", value=st.session_state.trade_params['ticker'])
+            dte_input = st.number_input("Days to Expiration (DTE)", value=float(st.session_state.trade_params['dte']))
             
-            # Map values properly based on strategy
-            p_ks = ks_input if strat_sel in ["VRP: Bull Put Spread", "VRP: Iron Condor"] else st.session_state.trade_params['k_s']
-            p_kl = kl_input if strat_sel in ["VRP: Bull Put Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"] else st.session_state.trade_params['k_l']
-            p_kcs = ks_input if strat_sel == "VRP: Bear Call Spread" else kcs_input if strat_sel == "VRP: Iron Condor" else st.session_state.trade_params.get('k_cs', 0.0)
-            p_kcl = kl_input if strat_sel == "VRP: Bear Call Spread" else kcl_input if strat_sel == "VRP: Iron Condor" else st.session_state.trade_params.get('k_cl', 0.0)
-
-            st.session_state.trade_params = {
-                'strategy': strat_sel, 'ticker': tckr_input.upper(), 'dte': dte_input, 
-                'k_s': p_ks, 'k_l': p_kl, 'k_cs': p_kcs, 'k_cl': p_kcl,
-                'qty': qty_input, 'spot': new_spot, 'vix': new_vix
-            }
-            st.rerun()
+            if strat_sel == "VRP: Bull Put Spread":
+                ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']), min_value=0.0)
+                kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']), min_value=0.0)
+                kcs_input, kcl_input = 0.0, 0.0
+            elif strat_sel == "VRP: Bear Call Spread":
+                ks_input = st.number_input("Short Call Strike", value=float(st.session_state.trade_params.get('k_cs', st.session_state.trade_params['k_s'])), min_value=0.0)
+                kl_input = st.number_input("Long Call Strike", value=float(st.session_state.trade_params.get('k_cl', st.session_state.trade_params['k_l'])), min_value=0.0)
+                kcs_input, kcl_input = 0.0, 0.0
+            elif strat_sel == "VRP: Iron Condor":
+                st.markdown("**Put Wing**")
+                ks_input = st.number_input("Short Put Strike", value=float(st.session_state.trade_params['k_s']), min_value=0.0)
+                kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']), min_value=0.0)
+                st.markdown("**Call Wing**")
+                kcs_input = st.number_input("Short Call Strike", value=float(st.session_state.trade_params.get('k_cs', 580)), min_value=0.0)
+                kcl_input = st.number_input("Long Call Strike", value=float(st.session_state.trade_params.get('k_cl', 605)), min_value=0.0)
+            elif strat_sel == "Deep OTM Tail Hedge (Long Put)":
+                ks_input = 0.0
+                kl_input = st.number_input("Long Put Strike", value=float(st.session_state.trade_params['k_l']), min_value=0.0)
+                kcs_input, kcl_input = 0.0, 0.0
+    
+            qty_input = st.number_input("Contracts", value=float(st.session_state.trade_params['qty']), min_value=1.0)
+            
+            submit = st.form_submit_button("Update Topography", type="primary")
+            
+            if submit:
+                new_spot, new_vix = get_live_market_data(tckr_input)
+                
+                # Map values properly based on strategy
+                p_ks = ks_input if strat_sel in ["VRP: Bull Put Spread", "VRP: Iron Condor"] else st.session_state.trade_params['k_s']
+                p_kl = kl_input if strat_sel in ["VRP: Bull Put Spread", "VRP: Iron Condor", "Deep OTM Tail Hedge (Long Put)"] else st.session_state.trade_params['k_l']
+                p_kcs = ks_input if strat_sel == "VRP: Bear Call Spread" else kcs_input if strat_sel == "VRP: Iron Condor" else st.session_state.trade_params.get('k_cs', 0.0)
+                p_kcl = kl_input if strat_sel == "VRP: Bear Call Spread" else kcl_input if strat_sel == "VRP: Iron Condor" else st.session_state.trade_params.get('k_cl', 0.0)
+    
+                st.session_state.trade_params = {
+                    'strategy': strat_sel, 'ticker': tckr_input.upper(), 'dte': dte_input, 
+                    'k_s': p_ks, 'k_l': p_kl, 'k_cs': p_kcs, 'k_cl': p_kcl,
+                    'qty': qty_input, 'spot': new_spot, 'vix': new_vix
+                }
+                st.rerun()
 
 
 
 # ==========================================
 # 5. MAIN UI & INTERACTIVE SLIDERS
 # ==========================================
+
+with st.expander("⚙️ Master Options Matrix & CFO Briefing", expanded=False):
+    st.markdown("<p style='color: #4b5563; font-size: 14px;'>A didactic Rosetta Stone for the Estate's Barbell mechanics. Outlines tax suitability, tactical execution, and live structural health for every active options class.</p>", unsafe_allow_html=True)
+    
+    matrix_rows = """
+    <tr style="border-bottom: 1px solid #e5e7eb;"><td><span style='color:#64748b'><b>Volatility Risk Premium (VRP)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>The Primary Cash Engine.</b><br>• <i>Pro:</i> Extremely high win rate (90%+). Harvests systematic fear.<br>• <i>Con:</i> Tail risk. Gamma explosions near expiration.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> 45-60 DTE. Delta 0.10 to 0.15.<br><br><b>Exit:</b> 50% Take-Profit or 21-DTE Time Stop.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> IV Rank is too low. Wait for VIX > 15.</td></tr>
+    
+    <tr style="border-bottom: 1px solid #e5e7eb;"><td><span style='color:#64748b'><b>120-DTE Black Swan Puts (XSP)</b></span><br><span style='font-size:11px; color:#15803d; background-color:#dcfce7; padding:2px 4px; border-radius:3px;'><b>TAX: EXCELLENT.</b> Section 1256 Cash-Settled.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Estate is completely naked to Black Swan gap-downs.</td><td style='color:#64748b; font-size: 13px;'><b>Black Swan Insurance (The Barbell).</b><br>• <i>Pro:</i> Mathematically guarantees survival during multi-month systemic meltdowns.<br>• <i>Con:</i> 100% loss of capital expected. Acts as a constant Theta drag.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> Financed strictly by 10% of VRP winnings. 120-150 DTE. Delta < -0.05.<br><br><b>Exit:</b> Monetize dynamically during deep market panic.</td><td style='color:#64748b; font-size: 13px; color:#b91c1c;'><b>CRITICAL.</b> VRP Tail budget is sitting idle. Purchase deep OTM puts immediately.</td></tr>
+    
+    <tr><td><span style='color:#64748b'><b>Conviction Puts (CSP)</b></span><br><span style='font-size:11px; color:#991b1b; background-color:#fee2e2; padding:2px 4px; border-radius:3px;'><b>TAX: WARNING.</b> Assignment increases physical US Situs exposure.</span></td><td style='color:#64748b; font-size: 13px; font-style:italic;'>NO ACTIVE POSITIONS<br><br>Awaiting signal to deploy.</td><td style='color:#64748b; font-size: 13px;'><b>Volatility Harvesting / Averaging Down.</b><br>• <i>Pro:</i> Generates massive cash yield. Turns market fear into an opportunity.<br>• <i>Con:</i> Locks up heavy notional margin. Increases Estate Tax risk.</td><td style='color:#64748b; font-size: 13px;'><b>Entry:</b> High IV Rank on targeted infrastructure/AI physical assets.<br><br><b>Exit:</b> 50% Take-Profit to free up margin, or happily take physical assignment.</td><td style='color:#64748b; font-size: 13px;'><b>Standby.</b> Monitor high-conviction assets for IV spikes.</td></tr>
+    """
+    
+    html_matrix = f"""
+    <div style="background-color: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; margin-bottom: 30px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+        <table style="width: 100%; text-align: left; font-family: sans-serif; border-collapse: collapse;">
+            <thead>
+                <tr style="background-color: #1e293b; color: #ffffff; border-bottom: 2px solid #cbd5e1;">
+                    <th style="padding: 12px; font-size: 14px; width: 15%;">Instrument & Tax Class</th>
+                    <th style="padding: 12px; font-size: 14px; width: 20%;">Active Position & Live Status</th>
+                    <th style="padding: 12px; font-size: 14px; width: 25%;">Strategic Thesis (Pros & Cons)</th>
+                    <th style="padding: 12px; font-size: 14px; width: 20%;">Execution Protocol (Entry / Exit)</th>
+                    <th style="padding: 12px; font-size: 14px; width: 20%;">Automated CFO Verdict</th>
+                </tr>
+            </thead>
+            <tbody>
+                {matrix_rows}
+            </tbody>
+        </table>
+    </div>
+    """
+    st.markdown(html_matrix, unsafe_allow_html=True)
+
 
 tab1 = st.container()
 tab2 = st.container()
@@ -343,17 +380,22 @@ with tab1:
     # ==========================================
     # Dynamic plotting bounds
     if strat == "VRP: Bear Call Spread":
-        min_plot = int(spot_price - 20)
-        max_plot = int(max(K_cs, K_cl) + 30)
+        min_plot = int(min(spot_price, K_cs, K_cl) - 30)
+        max_plot = int(max(spot_price, K_cs, K_cl) + 30)
     elif strat == "VRP: Iron Condor":
-        min_plot = int(min(K_s, K_l) - 30)
-        max_plot = int(max(K_cs, K_cl) + 30)
+        min_plot = int(min(spot_price, K_s, K_l) - 30)
+        max_plot = int(max(spot_price, K_cs, K_cl) + 30)
     elif strat == "Deep OTM Tail Hedge (Long Put)":
-        min_plot = int(K_l - 60)
-        max_plot = int(spot_price + 10)
+        min_plot = int(min(spot_price, K_l) - 60)
+        max_plot = int(max(spot_price, K_l) + 20)
     else: # Bull Put
-        min_plot = int(min(K_s, K_l) - 30)
-        max_plot = int(spot_price + 20)
+        min_plot = int(min(spot_price, K_s, K_l) - 30)
+        max_plot = int(max(spot_price, K_s, K_l) + 30)
+        
+    # Mathematical safeguard: Ensure range is strictly positive
+    if min_plot >= max_plot:
+        min_plot = int(spot_price - 30)
+        max_plot = int(spot_price + 30)
         
     x_vals = [px / 2.0 for px in range(int(min_plot * 2), int(max_plot * 2) + 1)]
     y_3d = list(range(int(init_dte), -1, -1))
@@ -582,80 +624,155 @@ with tab1:
 with tab2:
     st.markdown("---")
     st.markdown("### 📊 The Mathematical Edge: Closed Trade Expectancy")
-    st.markdown("This dashboard represents real-world performance of the Volatility Risk Premium (VRP) strategy based on closed options in your Master Ledger.")
+    
+    is_sandbox = st.session_state.get('portfolio_mode', 'Educational Sandbox') == 'Educational Sandbox'
+    if is_sandbox:
+        st.warning("⚠️ **EDUCATIONAL SANDBOX:** This dashboard is currently plotting pre-loaded historical dummy trades for training purposes. Toggle to 'Live Portfolio' in the sidebar to view your actual Master Ledger.")
+    else:
+        st.markdown("<p style='color:#64748b; font-size:14px;'>This dashboard represents the real-world expectancy of your strategies based on closed options in your Master Ledger.</p>", unsafe_allow_html=True)
     
     master_df = st.session_state.master_ledger
     closed_options = master_df[(master_df['Class'].isin(['Option', 'Options'])) & master_df['Exit Price'].notna() & (master_df['Exit Price'] != '')].copy()
     
     if not closed_options.empty:
-        closed_options['CloseDate'] = pd.to_datetime(closed_options['Exit Date'])
-        closed_options['EntryDate'] = pd.to_datetime(closed_options['Entry Date'])
-        closed_options['RealizedPnL'] = closed_options['Shares'].astype(float) * 100 * (closed_options['Exit Price'].astype(float) - closed_options['Entry Price'].astype(float))
-        closed_options['CapitalAtRisk'] = abs(closed_options['Shares'].astype(float) * 100 * (closed_options['Stop Loss'].astype(float) - closed_options['Entry Price'].astype(float)))
-        closed_options['ROC'] = (closed_options['RealizedPnL'] / closed_options['CapitalAtRisk']) * 100
+        # 1. Strategy Filter
+        strategy_list = closed_options['Strategy'].astype(str).unique().tolist()
+        strategy_classes = []
+        for s in strategy_list:
+            s_upper = s.upper()
+            if 'TAIL' in s_upper or 'BEAR PUT' in s_upper: 
+                strategy_classes.append('Tail Hedge (Catastrophe)')
+            elif 'CSP' in s_upper: 
+                strategy_classes.append('CSP')
+            elif 'SYNTHETIC BETA' in s_upper: 
+                strategy_classes.append('Synthetic Beta')
+            else: 
+                # If it doesn't explicitly flag as a Hedge, CSP, or Synthetic Beta, it is a VRP core trade
+                strategy_classes.append('VRP')
         
-        wins = closed_options[closed_options['RealizedPnL'] > 0]
-        losses = closed_options[closed_options['RealizedPnL'] <= 0]
+        class_map = dict(zip(strategy_list, strategy_classes))
+        closed_options['Radar Class'] = closed_options['Strategy'].astype(str).map(class_map)
+        unique_classes = sorted(list(set(strategy_classes)))
         
-        win_rate = (len(wins) / len(closed_options)) * 100 if len(closed_options) > 0 else 0
-        avg_win = wins['RealizedPnL'].mean() if len(wins) > 0 else 0
-        avg_loss = losses['RealizedPnL'].mean() if len(losses) > 0 else 0
-        gross_profit = wins['RealizedPnL'].sum()
-        gross_loss = abs(losses['RealizedPnL'].sum())
-        profit_factor = gross_profit / gross_loss if gross_loss != 0 else float('inf')
-        math_expectancy = closed_options['RealizedPnL'].mean() if len(closed_options) > 0 else 0
+        selected_classes = st.multiselect(
+            "🔍 Filter by Strategy (Radar Class):", 
+            options=unique_classes, 
+            default=['VRP'] if 'VRP' in unique_classes else unique_classes,
+            help="Isolate your mathematical edge by evaluating each options strategy in a vacuum."
+        )
         
-        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-        col_e1.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>WIN RATE</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>{win_rate:.1f}%</span></div>", unsafe_allow_html=True)
-        col_e2.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>AVERAGE WIN VS LOSS</span><br><span style='font-size:16px; font-weight:bold; color:#16a34a;'>+${avg_win:,.0f}</span> <span style='color:#64748b;'>/</span> <span style='font-size:16px; font-weight:bold; color:#dc2626;'>-${abs(avg_loss):,.0f}</span></div>", unsafe_allow_html=True)
-        col_e3.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>PROFIT FACTOR</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>{profit_factor:.2f}</span></div>", unsafe_allow_html=True)
-        col_e4.markdown(f"<div class='info-box' style='text-align:center; border-bottom: 3px solid #16a34a;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>MATH EXPECTANCY ⓘ</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>${math_expectancy:,.2f}</span></div>", unsafe_allow_html=True)
-        
-        fig_exp = go.Figure(go.Scatter(
-            x=closed_options['CloseDate'], y=closed_options['ROC'], mode='markers',
-            text=closed_options['RealizedPnL'],
-            hovertemplate="<b>Date:</b> %{x|%Y-%m-%d}<br><b>ROC:</b> %{y:.1f}%<br><b>PnL:</b> $%{text:.0f}<extra></extra>",
-            marker=dict(
-                size=np.minimum(np.abs(closed_options['RealizedPnL']) / 10, 50) + 10,
-                color=np.where(closed_options['RealizedPnL'] > 0, '#22c55e', '#ef4444'),
-                opacity=0.7, line=dict(width=1, color='white')
-            )
-        ))
-        fig_exp.add_hline(y=0, line_color="black", line_width=2)
-        fig_exp.update_layout(title="Behavioral Bubble Chart (Size = Abs PnL | Color = Win/Loss)", yaxis_title="Return on Capital (ROC) %", height=400, plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_exp, width="stretch")
+        if selected_classes:
+            closed_options = closed_options[closed_options['Radar Class'].isin(selected_classes)]
+            
+        if closed_options.empty:
+            st.warning("No trades match the selected strategy filters.")
+        else:
+            # 2. PnL & Risk Math
+            closed_options['CloseDate'] = pd.to_datetime(closed_options['Exit Date'])
+            closed_options['EntryDate'] = pd.to_datetime(closed_options['Entry Date'])
+            
+            shares_val = pd.to_numeric(closed_options['Shares'], errors='coerce').fillna(1)
+            exit_val = pd.to_numeric(closed_options['Exit Price'], errors='coerce').fillna(0)
+            entry_val = pd.to_numeric(closed_options['Entry Price'], errors='coerce').fillna(0)
+            sl_val = pd.to_numeric(closed_options['Stop Loss'], errors='coerce').fillna(0)
+            
+            is_long = (entry_val < 0) | closed_options['Strategy'].astype(str).str.lower().str.contains('tail|bear put|synthetic beta')
+            
+            pnl_long = (exit_val - np.abs(entry_val)) * shares_val * 100
+            pnl_short = (np.abs(entry_val) - exit_val) * shares_val * 100
+            closed_options['RealizedPnL'] = np.where(is_long, pnl_long, pnl_short)
+            
+            risk_diff = np.where(sl_val == 0, np.abs(entry_val) * 3, np.abs(sl_val - np.abs(entry_val)))
+            closed_options['CapitalAtRisk'] = shares_val * 100 * risk_diff
+            closed_options['CapitalAtRisk'] = np.where(closed_options['CapitalAtRisk'] == 0, 1000, closed_options['CapitalAtRisk'])
+            
+            closed_options['ROC'] = (closed_options['RealizedPnL'] / closed_options['CapitalAtRisk']) * 100
+            closed_options['DaysInTrade'] = (closed_options['CloseDate'] - closed_options['EntryDate']).dt.days.fillna(1)
+            
+            # 3. Metrics
+            wins = closed_options[closed_options['RealizedPnL'] > 0]
+            losses = closed_options[closed_options['RealizedPnL'] <= 0]
+            
+            win_rate = (len(wins) / len(closed_options)) * 100 if len(closed_options) > 0 else 0
+            avg_win = wins['RealizedPnL'].mean() if len(wins) > 0 else 0
+            avg_loss = losses['RealizedPnL'].mean() if len(losses) > 0 else 0
+            gross_profit = wins['RealizedPnL'].sum()
+            gross_loss = abs(losses['RealizedPnL'].sum())
+            profit_factor = gross_profit / gross_loss if gross_loss != 0 else float('inf')
+            math_expectancy = closed_options['RealizedPnL'].mean() if len(closed_options) > 0 else 0
+            
+            me_color = "#16a34a" if math_expectancy > 0 else "#dc2626"
+            me_sign = "+" if math_expectancy > 0 else ""
+            
+            col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+            col_e1.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>WIN RATE</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>{win_rate:.1f}%</span></div>", unsafe_allow_html=True)
+            col_e2.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>AVERAGE WIN VS LOSS</span><br><span style='font-size:16px; font-weight:bold; color:#16a34a;'>+${avg_win:,.0f}</span> <span style='color:#64748b;'>/</span> <span style='font-size:16px; font-weight:bold; color:#dc2626;'>-${abs(avg_loss):,.0f}</span></div>", unsafe_allow_html=True)
+            col_e3.markdown(f"<div class='info-box' style='text-align:center;'><span style='font-size:12px; color:#64748b; font-weight:bold;'>PROFIT FACTOR</span><br><span style='font-size:24px; font-weight:900; color:#16a34a;'>{profit_factor:.2f}</span></div>", unsafe_allow_html=True)
+            col_e4.markdown(f"<div class='info-box' style='text-align:center; border-bottom: 3px solid {me_color};'><span style='font-size:12px; color:#64748b; font-weight:bold;'>MATH EXPECTANCY ⓘ</span><br><span style='font-size:24px; font-weight:900; color:{me_color};'>{me_sign}${math_expectancy:,.2f}</span></div>", unsafe_allow_html=True)
+            
+            # 4. Bubble Chart
+            fig_exp = go.Figure(go.Scatter(
+                x=closed_options['CloseDate'], y=closed_options['ROC'], mode='markers',
+                text=closed_options['RealizedPnL'],
+                customdata=closed_options['DaysInTrade'],
+                hovertemplate="<b>Date:</b> %{x|%Y-%m-%d}<br><b>ROC:</b> %{y:.1f}%<br><b>PnL:</b> $%{text:.0f}<br><b>Days Held:</b> %{customdata}<extra></extra>",
+                marker=dict(
+                    size=np.minimum(np.abs(closed_options['RealizedPnL']) / 10, 50) + 10,
+                    color=closed_options['DaysInTrade'],
+                    colorscale='RdYlBu',
+                    showscale=True,
+                    colorbar=dict(title="Holding Time (Days)"),
+                    opacity=0.8, line=dict(width=1, color='black')
+                )
+            ))
+            fig_exp.add_hline(y=0, line_color="black", line_width=2)
+            fig_exp.update_layout(title="Behavioral Bubble Chart (Size = Abs PnL | Color = Days in Trade)", yaxis_title="Return on Capital (ROC) %", height=400, plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=40, b=0))
+            st.plotly_chart(fig_exp, width="stretch")
         
     else:
         st.info("No closed Option trades found in your Master Ledger. Add some completed option trades with Exit Prices to visualize your expectancy and ROC metrics.")
         
     st.markdown("---")
-    col_edu1, col_edu2 = st.columns(2)
-
-    with col_edu1:
-        st.markdown("### What is the Volatility Risk Premium (VRP)?")
+    st.markdown("### 📚 The Options Rosetta Stone")
+    st.markdown("Expand the sections below for a didactic breakdown of the strategies and mechanics powering the Convexity Desk engine.")
+    
+    with st.expander("🛡️ What is the Volatility Risk Premium (VRP)?"):
         st.markdown("""
         The VRP is a persistent market anomaly where the implied volatility (IV) priced into options contracts is historically higher than the actual realized volatility of the underlying asset. 
         
-        In simple terms: **Market participants consistently overpay for crash insurance.** By systematically selling Out-of-the-Money (OTM) put spreads on the S&P 500, we act as the insurance company, collecting the premium as it decays over time (Theta).
-        """)
-        
-        st.markdown("### How We Enhanced It (The Convexity Barbell)")
-        st.markdown("""
-        Selling insurance is profitable until a Black Swan event occurs. To prevent catastrophic ruin, we employ two strict enhancements:
-        1. **The 21-DTE Time Stop:** We never hold short options into expiration. We mechanically close trades at 21 Days to Expiration to avoid the "Gamma Cliff" (where price sensitivity explodes).
-        2. **The Tail Hedge:** We take 10% of our VRP winnings and purchase deep OTM 120-DTE puts. If the market crashes 30%, our short puts hit a defined max loss, but our Tail Hedges explode in value, covering the liability.
+        In simple terms: **Market participants consistently overpay for crash insurance.** By systematically selling Out-of-the-Money (OTM) put spreads on the S&P 500, institutions act as the insurance company, collecting the premium as it decays over time (Theta).
         """)
 
-    with col_edu2:
+    with st.expander("📉 Cash Secured Puts (CSPs) & The Assignment Radar"):
         st.markdown("""
-        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 24px; color: #2352d9; font-size: 14px; height: 100%;">
-            <h4 style="font-weight: bold; font-size: 16px; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Reference Guide: The Greeks Explained</h4>
-            <p style="margin-bottom: 12px;"><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Delta (Direction):</strong> Measures directional exposure. A Net Delta of 15 means your position gains USD 15 if the index goes up 1 point. In credit spreads, Delta also acts as your probability gauge (e.g., selling a 20 Delta strike equates to an 80% chance of success).</p>
-            <p style="margin-bottom: 12px;"><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Gamma (Acceleration):</strong> Measures the rate of change of Delta. High Gamma means your risk is accelerating uncontrollably (which peaks near expiration). This is exactly why we mechanically close trades at 21 DTE—to avoid Gamma explosions.</p>
-            <p style="margin-bottom: 12px;"><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Theta (Time Decay):</strong> Your daily salary. This positive number represents the dollar amount deposited into your unrealized P&L simply because one day passed, assuming all other market conditions remain totally flat.</p>
-            <p><strong style="color: #1d4ed8; background-color: #dbeafe; padding: 2px 4px; border-radius: 4px;">Vega (Fear Premium):</strong> Measures sensitivity to Implied Volatility (VIX). Because you sold insurance, your Net Vega is negative. This means if Implied Volatility drops by 1%, your portfolio instantly gains that dollar amount in profit (Volatility Crush).</p>
-        </div>
-        """, unsafe_allow_html=True)
+        CSPs involve selling Put options to acquire a stock at a discount to its current price, while collecting a premium for waiting.
+        If the stock drops below your strike price by expiration, you are 'assigned' and forced to buy the shares at that strike.
+        
+        **The Goal:** Either collect free premium (if the stock stays above the strike) or acquire a high-conviction asset at a steep discount.
+        """)
+
+    with st.expander("🚀 Synthetic Beta (The Conveyor Belt)"):
+        st.markdown("""
+        Synthetic Beta is a capital-efficient method of mirroring stock ownership using options. 
+        Instead of buying 100 shares of an index (which requires immense capital), you can buy a deep In-The-Money (ITM) Call and sell an Out-of-The-Money (OTM) Put at the same strike. 
+        
+        This synthetic position behaves almost identically to owning the stock, but requires a fraction of the margin, freeing up capital to generate yield elsewhere.
+        """)
+        
+    with st.expander("⚖️ Structural Defenses (The Barbell & Tail Hedges)"):
+        st.markdown("""
+        Selling insurance is theoretically profitable until a Black Swan event occurs. To prevent catastrophic ruin, advanced portfolios often explore the Barbell approach:
+        1. **The Time Stop:** Short options are rarely held into expiration. Mechanically closing trades early (e.g., at 21 DTE) avoids the "Gamma Cliff" where price sensitivity explodes unpredictably.
+        2. **The Tail Hedge:** A fraction of VRP winnings is used to purchase deep OTM long-dated puts. If the market crashes violently, the short puts hit a defined max loss, but the Tail Hedges explode in value due to convexity, providing crisis alpha.
+        """)
+
+    with st.expander("🏛️ Reference Guide: The Greeks Explained"):
+        st.markdown("""
+        - **Delta (Direction):** Measures directional exposure. A Net Delta of 15 means your position gains USD 15 if the index goes up 1 point. In credit spreads, Delta also acts as your probability gauge (e.g., selling a 20 Delta strike equates to an 80% chance of success).
+        - **Gamma (Acceleration):** Measures the rate of change of Delta. High Gamma means your risk is accelerating uncontrollably (which peaks near expiration). This is exactly why we mechanically close trades at 21 DTE—to avoid Gamma explosions.
+        - **Theta (Time Decay):** Your daily salary. This positive number represents the dollar amount deposited into your unrealized P&L simply because one day passed, assuming all other market conditions remain totally flat.
+        - **Vega (Fear Premium):** Measures sensitivity to Implied Volatility (VIX). Because you sold insurance, your Net Vega is negative. This means if Implied Volatility drops by 1%, your portfolio instantly gains that dollar amount in profit (Volatility Crush).
+        """)
 
     st.markdown("---")
     st.markdown("<div style='text-align: center; color: #64748b; font-size: 12px;'><b>Academic Foundation:</b> The quantitative edge demonstrated above is rooted in peer-reviewed financial science. For a deep dive into the mechanics of the VRP, read AQR Capital Management's seminal paper: <a href='https://www.aqr.com/-/media/AQR/Documents/White-Papers/Understanding-the-Volatility-Risk-Premium.pdf' target='_blank'>Understanding the Volatility Risk Premium</a>.</div>", unsafe_allow_html=True)

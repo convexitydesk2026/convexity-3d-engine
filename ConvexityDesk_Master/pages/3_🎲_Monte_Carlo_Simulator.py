@@ -65,22 +65,37 @@ render_page_header("🎲 Monte Carlo PnL Simulator", "Stress test your edge acro
 
 st.info("💡 **Data Provenance:** This simulator dynamically draws its trade parameters (Win Rate, Average Win, Average Loss) directly from the positions you configure in the **[Physical Equity Risk Ledger](/Physical_Equity_Risk_Ledger)** module. Navigate there to edit the inputs!")
 
+init_global_state()
+master_df = st.session_state.master_ledger
+equity_df = master_df.copy()
+
+if equity_df.empty:
+    st.warning("⚠️ No physical equity positions found in Master Ledger. The Simulator is in Standby Mode.")
+    st.stop()
+
+# Determine dynamic Last Trading Day based on data source
+is_sandbox = st.session_state.get('portfolio_mode', 'Educational Sandbox') == 'Educational Sandbox'
+
+if is_sandbox:
+    st.warning("⚠️ **DATA SOURCE WARNING:** You are currently in the **Educational Sandbox**. The underlying prices and performance metrics are simulated for training purposes. Toggle to 'Live Portfolio' in the sidebar to run simulations on live IBKR market data.")
+    try:
+        max_date = pd.to_datetime(equity_df['Exit Date']).dropna().max().date()
+    except:
+        max_date = date.today()
+else:
+    st.success("🟢 **LIVE PORTFOLIO ACTIVE:** The Monte Carlo Simulator is actively connected to your database and computing your live edge.")
+    max_date = date.today()
+
 # 1. SIDEBAR PARAMETERS
 with st.sidebar:
     st.header("1. Scenario Constraints")
     st.markdown("---")
-    last_trading_day = st.date_input("Last Trading Day", value=date.today())
+    last_trading_day = st.date_input("Last Trading Day", value=max_date)
     
     st.markdown("---")
     st.markdown("**Disclaimer:**")
     st.caption("For educational and demonstrational purposes only. Not financial advice. The simulations rely on static probabilities and do not reflect real market conditions or slippage.")
 
-init_global_state()
-master_df = st.session_state.master_ledger
-equity_df = master_df.copy()
-if equity_df.empty:
-    st.warning("⚠️ No physical equity positions found in Master Ledger. The Simulator is in Standby Mode.")
-    st.stop()
 
 traj_df = compute_daily_trajectory(equity_df)
 if traj_df.empty:
@@ -94,8 +109,9 @@ daily_pnl_array = traj_df['daily_pnl'].values
 
 st.subheader("Monte Carlo Analysis")
 
-# Run the Monte Carlo on the flattened edited array
-cum_sim, max_dds, mc_avg_dd, mc_best_dd, mc_worst_dd, mc_avg_path = generate_mc_paths(daily_pnl_array)
+with st.spinner("⏳ Simulating 10,000 parallel realities... Please wait."):
+    # Run the Monte Carlo on the flattened edited array
+    cum_sim, max_dds, mc_avg_dd, mc_best_dd, mc_worst_dd, mc_avg_path = generate_mc_paths(daily_pnl_array)
 
 orig_cum = np.insert(np.cumsum(daily_pnl_array), 0, 0)
 orig_peaks = np.maximum.accumulate(orig_cum)

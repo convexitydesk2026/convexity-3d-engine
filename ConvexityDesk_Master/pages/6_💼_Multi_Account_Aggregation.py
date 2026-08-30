@@ -61,7 +61,7 @@ if not traj.empty:
     qqq_metrics = calculate_advanced_metrics(qqq_pct_returns * 100000, spy_closes, 100000)
 else:
     # Fallbacks if empty
-    empty_met = {'irr':0, 'total_pnl':0, 'sharpe':0, 'max_dd_pct':0, 'dd_days':0, 'calmar':0, 'roc':0, 'alpha':0, 'beta':0, 'correlation':0}
+    empty_met = {'irr':0, 'pnl':0, 'sharpe':0, 'max_dd_pct':0, 'dd_days':0, 'calmar':0, 'roc':0, 'alpha':0, 'beta':0, 'correlation':0}
     metrics = {k: empty_met for k in ['Global', 'A', 'B', 'C', 'D']}
     spy_metrics = empty_met
     qqq_metrics = empty_met

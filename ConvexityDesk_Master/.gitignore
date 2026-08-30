@@ -1,0 +1,4 @@
+config.ini
+__pycache__/
+*.pyc
+goat_database.json

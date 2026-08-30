@@ -38,6 +38,7 @@ import yfinance as yf
 # Initialize Global State
 init_global_state()
 
+st.markdown("### 📝 Master Options & Equity Grid (Editable)")
 st.info("💡 **Educational Sandbox:** Edit the table below to simulate portfolio entries. Changes update the global state for the Monte Carlo simulator. Data is temporary and vanishes on refresh.")
 
 # Educational Sandbox Grid
@@ -54,8 +55,25 @@ edited_df = st.data_editor(
 )
 
 if not edited_df.equals(st.session_state.master_ledger):
-    st.session_state.master_ledger = edited_df
-    st.rerun()
+    absurd = False
+    alert_msg = ""
+    for idx, row in edited_df.iterrows():
+        for col in ['Entry Price', 'Shares', 'Stop Loss', 'Short Put', 'Long Put', 'Short Call', 'Long Call']:
+            if col in row and pd.notna(row[col]) and row[col] != "":
+                try:
+                    if float(row[col]) < 0:
+                        absurd = True
+                        alert_msg = f"Absurd input detected: '{col}' cannot be negative."
+                        break
+                except Exception:
+                    pass
+        if absurd: break
+
+    if absurd:
+        st.error(f"⛔ **Invalid Entry Rejected:** {alert_msg}")
+    else:
+        st.session_state.master_ledger = edited_df
+        st.rerun()
 # Filter Master Ledger for active physical equities (no exit date/price)
 master_df = st.session_state.master_ledger
 equity_df = master_df[(master_df['Class'] == 'Equity') & (master_df['Exit Price'].isna() | (master_df['Exit Price'] == ''))].copy()
@@ -269,13 +287,47 @@ with expander:
     display_cols = ['Ticker', 'Global Portfolio %', 'Earnings', 'Shares', 'Spot Price', 'Market Value', 'Cost', 'Avg SL', '20 SMA', '50 SMA', 'Open Risk', 'Locked Profit', 'Unlocked Profit', 'Total Profit', 'Live R-Mult', 'Days Active']
     display_df = df_alpha[display_cols]
     
-    st.dataframe(display_df.style.format({
+    is_live = st.session_state.get('portfolio_mode', 'Educational Sandbox') == 'Live Portfolio'
+    metrics_title = "### 🟢 Physical Equity Live Risk Metrics" if is_live else "### 🎲 Physical Equity Scenario Metrics"
+    st.markdown(metrics_title)
+    
+    format_dict = {
         'Global Portfolio %': '{:.2f}%', 'Shares': '{:,.0f}', 'Spot Price': '${:,.2f}', 
-        'Market Value': '${:,.0f}', 'Cost': '${:,.0f}', 'Avg SL': '${:,.2f}', 
+        'Market Value': '${:,.0f}', 'Cost': '${:,.0f}', 
         '20 SMA': '${:,.2f}', '50 SMA': '${:,.2f}',
         'Open Risk': '${:,.0f}', 'Locked Profit': '${:,.0f}', 'Unlocked Profit': '${:,.0f}', 
         'Total Profit': '${:,.0f}', 'Live R-Mult': '{:+.2f}R', 'Days Active': '{:.0f}'
-    }).apply(style_alpha_row, axis=1), hide_index=True, use_container_width=True)
+    }
+    
+    styled_df = display_df.style.format(format_dict).apply(style_alpha_row, axis=1)
+    disabled_cols = [c for c in display_cols if c != 'Avg SL']
+    
+    edited_metrics = st.data_editor(
+        styled_df, 
+        hide_index=True, 
+        use_container_width=True,
+        disabled=disabled_cols,
+        column_config={
+            "Avg SL": st.column_config.NumberColumn("Avg SL", format="$%.2f", step=0.01)
+        },
+        key="metrics_editor"
+    )
+
+    # Sync edits back to Master Ledger
+    changed = False
+    for idx in range(len(edited_metrics)):
+        new_sl = float(edited_metrics.iloc[idx]['Avg SL']) if pd.notna(edited_metrics.iloc[idx]['Avg SL']) else 0.0
+        orig_sl = float(display_df.iloc[idx]['Avg SL']) if pd.notna(display_df.iloc[idx]['Avg SL']) else 0.0
+        if abs(new_sl - orig_sl) > 0.001:
+            ticker = display_df.iloc[idx]['Ticker']
+            mask = (st.session_state.master_ledger['Ticker'] == ticker) & \
+                   (st.session_state.master_ledger['Class'] == 'Equity') & \
+                   (st.session_state.master_ledger['Exit Price'].isna() | (st.session_state.master_ledger['Exit Price'] == ''))
+            st.session_state.master_ledger.loc[mask, 'Stop Loss'] = new_sl
+            changed = True
+            
+    if changed:
+        st.rerun()
 
 
 

@@ -34,10 +34,45 @@ render_page_header("🔥 GOAT Alpha Engine", "Premium Signal Generation & Idea T
 
 st.markdown("---")
 
+# Simulated User Tier Access Control
+sim_tier = st.radio("Simulate User Tier (Admin Debug):", ["Tier 1 / Beta Tester", "Tier 2 (Standard)", "Tier 3 (Free)"], horizontal=True)
+if sim_tier != "Tier 1 / Beta Tester":
+    st.error("🔒 **Premium Access Required:** The GOAT Alpha Engine is restricted to Tier 1 Subscribers and Beta Testers.")
+    st.info("Upgrade your account to unlock proprietary Episodic Pivot graders, 13F Institutional tracking, and AVWAP Liquidity models.")
+    
+    # Render a CSS-blurred mock layout to tease the user
+    st.markdown("""
+    <div style="filter: blur(6px); opacity: 0.3; pointer-events: none; user-select: none; margin-top: 30px;">
+        <div style="display: flex; gap: 20px;">
+            <div style="flex: 1; border: 1px solid #ccc; border-radius: 10px; padding: 20px; height: 400px; background: #fafafa;">
+                <h3 style="color: #333;">⚡ Episodic Pivots (EP) Grader</h3>
+                <p style="color: #666;">Wait for MRNA-style setups. Do not force trades.</p>
+                <div style="height: 40px; background: #e2e8f0; border-radius: 5px; margin-top: 20px;"></div>
+                <div style="height: 40px; background: #e2e8f0; border-radius: 5px; margin-top: 10px;"></div>
+                <div style="height: 150px; background: #cbd5e1; border-radius: 5px; margin-top: 20px;"></div>
+            </div>
+            <div style="flex: 1; border: 1px solid #ccc; border-radius: 10px; padding: 20px; height: 400px; background: #fafafa;">
+                <h3 style="color: #333;">🍳 The GOAT Oven</h3>
+                <p style="color: #666;">Track 13F Macro Bases to 200 SMA.</p>
+                <div style="height: 120px; background: #cbd5e1; border-radius: 5px; margin-top: 20px;"></div>
+                <h3 style="color: #333; margin-top: 40px;">🦜 Squawk Box</h3>
+                <div style="height: 80px; background: #e2e8f0; border-radius: 5px;"></div>
+            </div>
+        </div>
+        <div style="border: 1px solid #ccc; border-radius: 10px; padding: 20px; height: 250px; background: #fafafa; margin-top: 20px;">
+             <h3 style="color: #333;">⚓ Institutional AVWAP Liquidity Traps</h3>
+             <p style="color: #666;">Track high-momentum pullbacks to Anchored VWAP.</p>
+             <div style="height: 100px; background: #cbd5e1; border-radius: 5px; margin-top: 20px;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
+
+
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.markdown("### ⚡ EP Grader (Qullamaggie)")
+    st.markdown("### ⚡ Episodic Pivots (EP) Grader")
     st.info("Wait for MRNA-style setups. Do not force trades.")
     
     with st.container(border=True):
@@ -56,35 +91,130 @@ with col1:
             st.success("Setup logged into EP Waiting Room.")
             
     st.markdown("#### EP Waiting Room")
-    ep_data = pd.DataFrame([
-        {"Ticker": "AKTI", "Status": "Waiting for ORB", "ORB_High": None, "RVol_Target": None, "Alert_Sent": 0},
-        {"Ticker": "CSCO", "Status": "Waiting for ORB", "ORB_High": None, "RVol_Target": None, "Alert_Sent": 0},
-        {"Ticker": "GOOGL", "Status": "Waiting for ORB", "ORB_High": 300.0, "RVol_Target": 10.0, "Alert_Sent": 1},
-    ])
-    st.dataframe(ep_data, use_container_width=True, hide_index=True)
+    
+    ep_db_path = "ep_waiting_room.json"
+    import json
+    from datetime import datetime
+    import pytz
+    
+    # Get current ET date to handle the 11:59 PM auto-delete logic
+    et_tz = pytz.timezone('US/Eastern')
+    current_et_date = datetime.now(et_tz).strftime('%Y-%m-%d')
+    
+    if Path(ep_db_path).exists():
+        with open(ep_db_path, "r") as f:
+            ep_raw = json.load(f)
+        ep_data = pd.DataFrame(ep_raw)
+        
+        # Auto-delete rows that are not from today (simulating the 11:59 PM ET wipe)
+        if not ep_data.empty and 'Date_Added' in ep_data.columns:
+            ep_data = ep_data[ep_data['Date_Added'] == current_et_date]
+    else:
+        ep_data = pd.DataFrame(columns=["Active", "Ticker", "Status", "ORB_High", "RVol_Target", "Alert_Sent", "Date_Added"])
+        
+    if ep_data.empty:
+        ep_data = pd.DataFrame(columns=["Active", "Ticker", "Status", "ORB_High", "RVol_Target", "Alert_Sent", "Date_Added"])
+        
+    # Ensure standard types
+    ep_data['Active'] = ep_data['Active'].astype(bool) if 'Active' in ep_data.columns else True
+
+    # Make table editable (Admin can add/delete rows directly)
+    edited_ep = st.data_editor(
+        ep_data, 
+        num_rows="dynamic",
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Active": st.column_config.CheckboxColumn("Track?", default=True),
+            "Ticker": st.column_config.TextColumn("Ticker", required=True),
+            "Status": st.column_config.SelectboxColumn("Status", options=["Waiting for ORB", "ORB Triggered", "Failed"], required=True),
+            "ORB_High": st.column_config.NumberColumn("ORB High", format="$%.2f"),
+            "RVol_Target": st.column_config.NumberColumn("RVol Target", format="%.1f"),
+            "Date_Added": st.column_config.TextColumn("Date Added (ET)", disabled=True)
+        }
+    )
+    
+    if not edited_ep.equals(ep_data):
+        # Auto-stamp the date on new rows
+        edited_ep['Date_Added'] = edited_ep['Date_Added'].fillna(current_et_date)
+        with open(ep_db_path, "w") as f:
+            json.dump(edited_ep.to_dict(orient="records"), f, indent=4)
+        st.rerun()
 
 with col2:
     st.markdown("### 🍳 The GOAT Oven")
     st.caption("Track 13F Macro Bases (e.g. IREN, RIOT, BTDR, DLR) to 200 SMA.")
     
-    oven_data = pd.DataFrame([
-        {"Ticker": "IREN", "Theme": "AI Power", "Target_SMA": 46.7, "Notes": "In Duquesne Family 13F for 2026 Q2", "Alert_Sent": 0},
-        {"Ticker": "RIOT", "Theme": "AI Power", "Target_SMA": 18.5, "Notes": "In Duquesne Family 13F for 2026 Q2", "Alert_Sent": 1},
-        {"Ticker": "BTDR", "Theme": "AI Power", "Target_SMA": 12.3, "Notes": "Duquesne...", "Alert_Sent": 0},
-    ])
-    st.dataframe(oven_data, use_container_width=True, hide_index=True)
+    oven_db_path = "goat_oven.json"
+    if Path(oven_db_path).exists():
+        with open(oven_db_path, "r") as f:
+            oven_raw = json.load(f)
+        oven_data = pd.DataFrame(oven_raw)
+    else:
+        oven_data = pd.DataFrame(columns=["Active", "Ticker", "Theme", "Target_SMA", "Notes", "Alert_Sent"])
+        
+    if oven_data.empty:
+        oven_data = pd.DataFrame(columns=["Active", "Ticker", "Theme", "Target_SMA", "Notes", "Alert_Sent"])
+        
+    oven_data['Active'] = oven_data['Active'].astype(bool) if 'Active' in oven_data.columns else True
+
+    edited_oven = st.data_editor(
+        oven_data,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Active": st.column_config.CheckboxColumn("Track?", default=True),
+            "Ticker": st.column_config.TextColumn("Ticker", required=True),
+        }
+    )
     
-    with st.expander("➕ Add Ticker to Oven"):
-        st.text_input("New Ticker")
-        st.button("Save to Oven")
+    if not edited_oven.equals(oven_data):
+        with open(oven_db_path, "w") as f:
+            json.dump(edited_oven.to_dict(orient="records"), f, indent=4)
+        st.rerun()
         
     st.markdown("### 🦜 Squawk Box")
     st.markdown("[Alpha Radar X List by ConvexityDesk](https://x.com/i/lists/2091567520998142458)")
     
-    st.info("Data Feed temporarily disconnected during infrastructure migration.")
-    # components.html("""
-    # <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://x.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> 
-    # <script async src="https://platform.x.com/widgets.js" charset="utf-8"></script>
-    # """, height=600, scrolling=True)
+    # st.info("Data Feed temporarily disconnected during infrastructure migration.")
+    components.html("""
+    <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://twitter.com/ConvexityDesk/lists/2091567520998142458?ref_src=twsrc%5Etfw">An X List by ConvexityDesk</a> 
+    <script async src="https://platform.x.com/widgets.js" charset="utf-8"></script>
+    """, height=600, scrolling=True)
 
-render_page_footer("The GOAT Alpha Engine centralizes high-probability idea generation. It tracks Qullamaggie Episodic Pivots, 13F institutional accumulation bases, and live Squawk Box alerts to feed the Pre-Flight Matrix.")
+st.markdown("---")
+st.markdown("### ⚓ Institutional AVWAP Liquidity Traps")
+st.caption("Track 'Weakness in Strength' high-momentum pullbacks to Anchored VWAP and EMA clusters.")
+    
+# Read from the JSON database maintained by the Webhook Server
+db_path = "goat_database.json"
+if Path(db_path).exists():
+    import json
+    with open(db_path, "r") as f:
+        luk_data_raw = json.load(f)
+    luk_data = pd.DataFrame(luk_data_raw)
+    if luk_data.empty:
+        luk_data = pd.DataFrame(columns=["Active", "Ticker", "Trap Type", "AVWAP Level", "Status", "Risk/Reward"])
+        
+    luk_data['Active'] = luk_data['Active'].astype(bool) if 'Active' in luk_data.columns else True
+
+    edited_luk = st.data_editor(
+        luk_data,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Active": st.column_config.CheckboxColumn("Track?", default=True),
+            "Ticker": st.column_config.TextColumn("Ticker", required=True),
+        }
+    )
+    
+    if not edited_luk.equals(luk_data):
+        with open(db_path, "w") as f:
+            json.dump(edited_luk.to_dict(orient="records"), f, indent=4)
+        st.rerun()
+
+st.markdown("<br><p style='font-size: 11px; color: #475569; line-height: 1.4;'><b>Quantitative Origins:</b> The models tracked in this engine are heavily inspired by audited market champions.<br>- <b>Episodic Pivots:</b> Popularized by Kristjan Kullamägi (Qullamaggie), featured in Jack D. Schwager's <i>Unknown Market Wizards</i>.<br>- <b>AVWAP Traps:</b> Popularized by Martin Luk, a multi-year top performer and finalist in the United States Investing Championship (USIC).</p>", unsafe_allow_html=True)
+
+render_page_footer("The GOAT Alpha Engine centralizes high-probability idea generation. It tracks Episodic Pivots, 13F institutional accumulation bases, AVWAP liquidity traps, and live Squawk Box alerts.")

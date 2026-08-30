@@ -89,15 +89,39 @@ def render_global_sidebar():
                 del st.session_state['master_ledger']
             st.rerun()
             
+        init_global_state()
+        bals = calculate_portfolio_balances(st.session_state.master_ledger)
+        calculated_nav = bals['Global']
+        
+        # We need distinct keys for dummy vs live to force the input to update its default value
+        mode_prefix = "dummy" if portfolio_mode == "Educational Sandbox" else "live"
+        
+        # Inject Global Background Hue
+        if portfolio_mode == "Educational Sandbox":
+            bg_color = "#fff1f2"  # Faint Red/Pink
+        else:
+            bg_color = "#f0fdf4"  # Faint Green
+            
+        st.markdown(f"""
+            <style>
+                .stApp, .stApp > header {{
+                    background-color: {bg_color} !important;
+                }}
+                [data-testid="stSidebar"] {{
+                    background-color: {bg_color} !important;
+                }}
+            </style>
+        """, unsafe_allow_html=True)
+            
         st.divider()
         st.markdown("### 🧮 Alpha Risk Calculator & HWM Budget")
         st.caption("[Read the mathematical methodology here](https://convexitydesk.com/the-math-behind-the-alpha-risk-calculator/)")
         
         c1, c2 = st.columns(2)
         with c1:
-            hwm = st.number_input("Peak HWM ($)", value=100000, step=1000, min_value=1)
+            hwm = st.number_input("Peak HWM ($)", value=float(max(100000, calculated_nav)), step=1000.0, min_value=1.0, key=f"hwm_{mode_prefix}")
         with c2:
-            nav = st.number_input("Current NAV ($)", value=100000, step=1000)
+            nav = st.number_input("Current NAV ($)", value=float(calculated_nav), step=1000.0, key=f"nav_{mode_prefix}")
             
         dd_pct = (nav - hwm) / hwm
         if dd_pct > 0:
@@ -120,8 +144,8 @@ def render_global_sidebar():
             tier_color = "#dc2626" 
             multiplier = 0.0
             
-        base_capacity = 20000 
-        remaining_capacity = base_capacity * multiplier
+        max_notional_base = nav * 0.05
+        adj_max_notional = max_notional_base * multiplier
 
         st.markdown(
             f"<div style='background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;'>"
@@ -130,12 +154,12 @@ def render_global_sidebar():
             f"<p style='font-size: 12px; color: #475569; margin-bottom: 15px;'>HWM: ${hwm:,.0f} | Current Drawdown: {dd_pct*100:.2f}%</p>"
             f"<div style='display: flex; justify-content: space-between;'>"
             f"<div>"
-            f"<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>BASE CAPACITY</p>"
-            f"<p style='font-size: 16px; font-weight: bold; color: #3b82f6; margin-top: 0px;'>${base_capacity:,.0f}</p>"
+            f"<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>MAX NOTIONAL (5%)</p>"
+            f"<p style='font-size: 16px; font-weight: bold; color: #3b82f6; margin-top: 0px;'>${max_notional_base:,.0f}</p>"
             f"</div>"
             f"<div style='text-align: right;'>"
-            f"<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>REMAINING CAPACITY</p>"
-            f"<p style='font-size: 16px; font-weight: bold; color: {tier_color}; margin-top: 0px;'>${remaining_capacity:,.0f}</p>"
+            f"<p style='font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 0px;'>ADJ. NOTIONAL CAP</p>"
+            f"<p style='font-size: 16px; font-weight: bold; color: {tier_color}; margin-top: 0px;'>${adj_max_notional:,.0f}</p>"
             f"</div>"
             f"</div>"
             f"</div>", 
@@ -146,7 +170,7 @@ def render_global_sidebar():
             st.selectbox("Target Silo", ["Silo A (Core)", "Silo B (High Beta)", "Silo C (Mega-Cap)", "Silo D (Speculative)"])
             st.markdown(f"<p style='font-size: 12px; color: #64748b;'>Silo NAV: <b>${nav/4:,.0f}</b> (Assumed equal split)<br>Uninvested Cash: <b>${(nav/4)*0.2:,.0f}</b></p>", unsafe_allow_html=True)
             
-            st.checkbox("Flag as IPO / Unproven Asset")
+            is_ipo = st.checkbox("Flag as IPO / Unproven Asset")
             
             entry_type = st.radio("Entry Type", ["Initial Entry", "Scale-In (Pyramid)"], horizontal=True, label_visibility="collapsed")
             
@@ -179,8 +203,24 @@ def render_global_sidebar():
                     risk_per_share = abs(entry - sl)
                     if risk_per_share > 0 and risk_amt > 0:
                         shares = int(risk_amt / risk_per_share)
-                        capital_at_risk = shares * entry
-                        st.info(f"Optimal Size: **{shares} Shares**\n\nTotal Capital: ${capital_at_risk:,.0f}\n\n*Risk Multiplier applied: {multiplier}x*")
+                        
+                        # Gate 2: Absolute Notional Cap
+                        max_notional_usd = nav * (0.02 if is_ipo else 0.05) * multiplier
+                        notional_value = shares * entry
+                        
+                        gate_2_triggered = False
+                        if notional_value > max_notional_usd:
+                            shares = int(max_notional_usd / entry)
+                            notional_value = shares * entry
+                            gate_2_triggered = True
+                            
+                        capital_at_risk = notional_value
+                        alert_msg = f"Optimal Size: **{shares} Shares**\n\nTotal Capital: ${capital_at_risk:,.0f}\n\n*Risk Multiplier applied: {multiplier}x*"
+                        
+                        if gate_2_triggered:
+                            alert_msg += f"\n\n⚠️ **GATE 2 TRIGGERED:** Stop loss is extremely tight. Position mechanically capped at Absolute Notional Limit (${max_notional_usd:,.0f})."
+                            
+                        st.info(alert_msg)
                     else:
                         if multiplier == 0.0:
                             st.error("HARD STOP: Tier 4 active. Trading halted.")
@@ -188,14 +228,6 @@ def render_global_sidebar():
                             st.error("Invalid Entry or Stop Loss")
                 else:
                     # Pyramiding Logic: Risk is calculated on the COMBINED position using the new trailing stop.
-                    # Total Risk = (Total Shares) * (New Avg Cost - New Stop Loss)
-                    # We solve for New Shares (NS):
-                    # Risk = (ES + NS) * (((ES*EA) + (NS*EP))/(ES+NS) - SL)
-                    # Risk = (ES*EA + NS*EP) - SL*(ES + NS)
-                    # Risk = ES*EA + NS*EP - SL*ES - SL*NS
-                    # Risk - ES*EA + SL*ES = NS * (EP - SL)
-                    # NS = (Risk - ES(EA - SL)) / (EP - SL)
-                    
                     if entry == sl:
                         st.error("Entry cannot equal Stop Loss.")
                     else:
@@ -207,8 +239,31 @@ def render_global_sidebar():
                         else:
                             total_shares = existing_shares + shares
                             new_avg_cost = ((existing_shares * existing_avg) + (shares * entry)) / total_shares
-                            total_capital = total_shares * new_avg_cost
-                            st.success(f"Optimal Scale-In: **+{shares} Shares**\n\nNew Combined Position: **{total_shares} Shares**\n\nNew Avg Cost Basis: **${new_avg_cost:,.2f}**\n\nTotal Capital: ${total_capital:,.0f}")
+                            total_notional = total_shares * new_avg_cost
+                            
+                            # Gate 2: Absolute Notional Cap for Combined Position
+                            max_notional_usd = nav * (0.02 if is_ipo else 0.05) * multiplier
+                            gate_2_triggered = False
+                            
+                            if total_notional > max_notional_usd:
+                                allowed_total_shares = int(max_notional_usd / new_avg_cost)
+                                shares = allowed_total_shares - existing_shares
+                                
+                                if shares <= 0:
+                                    st.error(f"Pyramid Denied (Gate 2): Your existing position already exceeds the Notional Cap (${max_notional_usd:,.0f}).")
+                                    st.stop()
+                                    
+                                gate_2_triggered = True
+                                total_shares = existing_shares + shares
+                                new_avg_cost = ((existing_shares * existing_avg) + (shares * entry)) / total_shares
+                                total_notional = total_shares * new_avg_cost
+
+                            alert_msg = f"Optimal Scale-In: **+{shares} Shares**\n\nNew Combined Position: **{total_shares} Shares**\n\nNew Avg Cost Basis: **${new_avg_cost:,.2f}**\n\nTotal Capital: ${total_notional:,.0f}"
+                            
+                            if gate_2_triggered:
+                                alert_msg += f"\n\n⚠️ **GATE 2 TRIGGERED:** Position mechanically capped to respect Absolute Notional Limit (${max_notional_usd:,.0f})."
+                                
+                            st.success(alert_msg)
 
 def render_page_header(title: str, subtitle: str):
     """Renders a globally consistent, institutional dark-blue header banner."""
@@ -235,9 +290,37 @@ def init_global_state():
                 df = pd.read_csv(csv_path, parse_dates=['Entry Date', 'Exit Date', 'Expiry'])
                 for col in ['Entry Date', 'Exit Date', 'Expiry']:
                     df[col] = pd.to_datetime(df[col], errors='coerce')
+                    
+                opt_path = Path(__file__).parent / "dummy_options.csv"
+                if opt_path.exists():
+                    opt_df = pd.read_csv(opt_path)
+                    
+                    mapped_opts = pd.DataFrame()
+                    mapped_opts['Silo'] = opt_df['Tranche ID'].str.split(' -').str[0].str.split(':').str[0].str.replace('VRP_', '').str.split('_').str[0].str.replace('Silo', 'Silo ')
+                    # Clean up silos to just A, B, C, D
+                    mapped_opts['Silo'] = mapped_opts['Silo'].apply(lambda x: x[-1] if isinstance(x, str) and x[-1] in ['A', 'B', 'C', 'D'] else 'A')
+                    
+                    mapped_opts['Class'] = 'Options'
+                    mapped_opts['Strategy'] = opt_df['Tranche ID']
+                    mapped_opts['Ticker'] = opt_df['Ticker']
+                    mapped_opts['Entry Date'] = pd.to_datetime(opt_df['Open Date'], errors='coerce')
+                    mapped_opts['Exit Date'] = pd.to_datetime(opt_df['Close Date'], errors='coerce')
+                    mapped_opts['Shares'] = opt_df['Quantity']
+                    mapped_opts['Entry Price'] = opt_df['Premium Collected (USD)']
+                    mapped_opts['Exit Price'] = pd.to_numeric(opt_df['Closing Price (USD)'], errors='coerce')
+                    mapped_opts['Short Put'] = opt_df['Short Strike']
+                    mapped_opts['Long Put'] = opt_df['Long Strike']
+                    mapped_opts['Short Call'] = 0.0
+                    mapped_opts['Long Call'] = 0.0
+                    
+                    # only keep rows with valid exit prices for the chart
+                    mapped_opts = mapped_opts.dropna(subset=['Exit Price'])
+                    
+                    df = pd.concat([df, mapped_opts], ignore_index=True)
+
                 st.session_state.master_ledger = df
             except Exception as e:
-                st.error(f"Error loading dummy_portfolio.csv: {e}")
+                st.error(f"Error loading dummy_portfolio.csv or dummy_options.csv: {e}")
                 st.session_state.master_ledger = pd.DataFrame()
         else:
             # Live Portfolio: Empty Schema until PostgreSQL is hooked up
@@ -491,17 +574,24 @@ def compute_daily_trajectory(df_input):
                 
                 is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
                 if is_option:
+                    is_long_opt = (entry_price < 0) or ('tail' in str(row.get('Strategy', '')).lower()) or ('bear put' in str(row.get('Strategy', '')).lower()) or ('synthetic beta' in str(row.get('Strategy', '')).lower())
                     if exit_dt.year >= 2099: # Currently open
-                        pct_change = 0.05
-                        current_premium = entry_price * 1.05 
-                        pnl = shares * (current_premium - entry_price) * 100
+                        if is_long_opt:
+                            current_premium = abs(entry_price) * 1.05
+                            pnl = shares * (current_premium - abs(entry_price)) * 100
+                        else:
+                            current_premium = abs(entry_price) * 0.95
+                            pnl = shares * (abs(entry_price) - current_premium) * 100
                     else: # Historically active
                         total_days = (exit_dt - entry_dt).days
                         current_day = (d - entry_dt).days
                         progress = current_day / total_days if total_days > 0 else 1
                         
-                        exit_price_val = float(row['Exit Price']) if pd.notna(row['Exit Price']) and row['Exit Price'] != '' else entry_price
-                        final_pnl = shares * (exit_price_val - entry_price) * 100
+                        exit_price_val = float(row['Exit Price']) if pd.notna(row['Exit Price']) and row['Exit Price'] != '' else abs(entry_price)
+                        if is_long_opt:
+                            final_pnl = shares * (exit_price_val - abs(entry_price)) * 100
+                        else:
+                            final_pnl = shares * (abs(entry_price) - exit_price_val) * 100
                         
                         spy_pct = (spot - actual_entry) / actual_entry if actual_entry > 0 else 0
                         pnl = final_pnl * progress + (abs(final_pnl) * spy_pct * 0.5)
@@ -516,10 +606,14 @@ def compute_daily_trajectory(df_input):
                 if pd.notna(row['Exit Price']) and row['Exit Price'] != '':
                     exit_price = float(row['Exit Price'])
                 else:
-                    exit_price = entry_price if is_option else actual_entry # Fallback to 0 PnL if no exit price provided
+                    exit_price = abs(entry_price) if is_option else actual_entry # Fallback to 0 PnL if no exit price provided
                 
                 if is_option:
-                    pnl = shares * (exit_price - entry_price) * 100
+                    is_long_opt = (entry_price < 0) or ('tail' in str(row.get('Strategy', '')).lower()) or ('bear put' in str(row.get('Strategy', '')).lower()) or ('synthetic beta' in str(row.get('Strategy', '')).lower())
+                    if is_long_opt:
+                        pnl = shares * (exit_price - abs(entry_price)) * 100
+                    else:
+                        pnl = shares * (abs(entry_price) - exit_price) * 100
                 else:
                     pnl = shares * (exit_price - actual_entry)
                 
@@ -583,14 +677,22 @@ def calculate_portfolio_balances(df_input, initial_nav_per_silo=25000):
             # Closed position
             pnl = (float(exit_price) - entry_price) * shares
             if is_option:
-                pnl = (float(exit_price) - entry_price) * shares * 100
+                is_long_opt = (entry_price < 0) or ('tail' in str(row.get('Strategy', '')).lower()) or ('bear put' in str(row.get('Strategy', '')).lower()) or ('synthetic beta' in str(row.get('Strategy', '')).lower())
+                if is_long_opt:
+                    pnl = (float(exit_price) - abs(entry_price)) * shares * 100
+                else:
+                    pnl = (abs(entry_price) - float(exit_price)) * shares * 100
             balances[silo] += pnl
         else:
             # Open position
             if is_option:
+                is_long_opt = (entry_price < 0) or ('tail' in str(row.get('Strategy', '')).lower()) or ('bear put' in str(row.get('Strategy', '')).lower()) or ('synthetic beta' in str(row.get('Strategy', '')).lower())
                 # Dummy pricing: random +/- 15% return for floating options PnL
-                dummy_spot = entry_price * 1.05
-                pnl = (dummy_spot - entry_price) * shares * 100
+                dummy_spot = abs(entry_price) * 1.05 if is_long_opt else abs(entry_price) * 0.95
+                if is_long_opt:
+                    pnl = (dummy_spot - abs(entry_price)) * shares * 100
+                else:
+                    pnl = (abs(entry_price) - dummy_spot) * shares * 100
                 balances[silo] += pnl
             else:
                 ticker = row.get('Ticker')
