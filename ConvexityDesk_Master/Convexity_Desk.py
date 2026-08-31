@@ -89,15 +89,15 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     with st.container(border=True):
-        st.markdown("#### 📊 Risk Ledger Sandbox")
+        st.markdown("#### 📊 Risk Ledger")
         st.markdown("<div class='card-desc'>An ephemeral sandbox ledger. Manually edit the dummy data grid to see how position sizing affects the Monte Carlo and risk models.</div>", unsafe_allow_html=True)
-        st.page_link("pages/1_📊_Risk_Ledger_Sandbox.py", label="Launch Ledger", icon="🚀")
+        st.page_link("pages/1_📊_Risk_Ledger.py", label="Launch Ledger", icon="🚀")
 
 with col2:
     with st.container(border=True):
-        st.markdown("#### 📈 GOAT Trajectory")
+        st.markdown("#### 📈 Portfolio Trajectory")
         st.markdown("<div class='card-desc'>Track the hypothetical historical performance of the 🔥 GOAT Alpha Engine signals against major benchmarks to verify our quantitative edge.</div>", unsafe_allow_html=True)
-        st.page_link("pages/2_📈_GOAT_Trajectory.py", label="Launch Trajectory", icon="🚀")
+        st.page_link("pages/2_📈_Portfolio_Trajectory.py", label="Launch Trajectory", icon="🚀")
 
 with col3:
     with st.container(border=True):
@@ -115,9 +115,9 @@ with col4:
 
 with col5:
     with st.container(border=True):
-        st.markdown("#### 🔥 GOAT Alpha Engine")
-        st.markdown("<div class='card-desc'>Premium signal generation. Track Qullamaggie Episodic Pivots, 13F institutional accumulation bases, and live Squawk Box macro alerts.</div>", unsafe_allow_html=True)
-        st.page_link("pages/5_🔥_GOAT_Alpha_Engine.py", label="Launch Alpha Engine", icon="🚀")
+        st.markdown("#### 🔥 Alpha Engine")
+        st.markdown("<div class='card-desc'>Premium signal generation. Track Qullamaggie Episodic Pivots, 13F Institutional accumulation bases, and live Squawk Box macro alerts.</div>", unsafe_allow_html=True)
+        st.page_link("pages/5_🔥_Alpha_Engine.py", label="Launch Alpha Engine", icon="🚀")
 
 with col6:
     with st.container(border=True):
@@ -135,9 +135,9 @@ with col7:
 
 with col8:
     with st.container(border=True):
-        st.markdown("#### 🛩️ Options Pre-Flight Matrix")
+        st.markdown("#### 🛩️ Options Governor Matrix")
         st.markdown("<div class='card-desc'>Strict mechanical checklist to guarantee pristine trade execution. Mitigate emotional bias by running trades through the pre-flight quantitative filter.</div>", unsafe_allow_html=True)
-        st.page_link("pages/8_🛩️_Options_Pre_Flight_Matrix.py", label="Launch Checklist", icon="🚀")
+        st.page_link("pages/8_🛩️_Options_Governor_Matrix.py", label="Launch Checklist", icon="🚀")
 
 with col9:
     pass

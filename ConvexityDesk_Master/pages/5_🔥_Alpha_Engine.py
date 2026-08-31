@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from public_core_math import render_global_sidebar, render_page_footer, render_page_header
 
-st.set_page_config(page_title="GOAT Alpha Engine | Convexity Desk", layout="wide")
+st.set_page_config(page_title="Alpha Engine | Convexity Desk", layout="wide")
 
 render_global_sidebar()
 
@@ -30,7 +30,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-render_page_header("🔥 GOAT Alpha Engine", "Premium Signal Generation & Idea Tracking")
+render_page_header("🔥 Alpha Engine", "Premium Signal Generation & Idea Tracking")
 
 st.markdown("---")
 

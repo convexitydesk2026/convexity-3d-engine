@@ -372,6 +372,10 @@ full_html_document = f'''<!DOCTYPE html>
 </html>
 '''
 
+st.markdown("### 🌊 Global Institutional Flow Matrix")
+st.components.v1.html(full_html_document, height=1000, scrolling=True)
+
+st.markdown("---")
 st.markdown("### 🗺️ S&P 500 Market Cap Heatmap")
 st.markdown("<p style='color:#64748b; font-size:14px;'>Visualizing daily rotation and relative strength across the S&P 500 constituents.</p>", unsafe_allow_html=True)
 
@@ -399,9 +403,5 @@ heatmap_html = """
 </div>
 """
 st.components.v1.html(heatmap_html, height=520, scrolling=False)
-
-st.markdown("---")
-st.markdown("### 🌊 Global Institutional Flow Matrix")
-st.components.v1.html(full_html_document, height=1000, scrolling=True)
 
 render_page_footer("The Market Flow Matrix monitors institutional fund flows across highly capitalized core indices, giving you a real-time 'heat map' of where major capital is rotating. This allows you to position your portfolio defensively or aggressively in tandem with the smart money.")

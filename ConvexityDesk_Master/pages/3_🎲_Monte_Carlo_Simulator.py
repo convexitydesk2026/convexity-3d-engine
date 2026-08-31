@@ -61,7 +61,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-render_page_header("🎲 Monte Carlo PnL Simulator", "Stress test your edge across 10,000 reshuffled realities.")
+render_page_header("🎲 Monte Carlo Simulator", "Stress test your edge across 10,000 reshuffled realities.")
 
 st.info("💡 **Data Provenance:** This simulator dynamically draws its trade parameters (Win Rate, Average Win, Average Loss) directly from the positions you configure in the **[Physical Equity Risk Ledger](/Physical_Equity_Risk_Ledger)** module. Navigate there to edit the inputs!")
 

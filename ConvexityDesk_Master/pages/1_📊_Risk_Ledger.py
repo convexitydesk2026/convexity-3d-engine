@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from public_core_math import render_global_sidebar, init_global_state, render_page_footer, render_page_header
 render_global_sidebar()
-render_page_header("📊 Educational Risk Ledger Sandbox", "Track absolute notional risk across all dummy physical equity and options positions.")
+render_page_header("📊 Risk Ledger", "Track absolute notional risk across all physical equity and options positions.")
 import yfinance as yf
 
 # Initialize Global State

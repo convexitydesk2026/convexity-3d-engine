@@ -32,12 +32,8 @@ st.markdown('''
     </div>
 ''', unsafe_allow_html=True)
 
-# Dynamic Header based on Global State
-mode = st.session_state.get('portfolio_mode', 'Educational Sandbox')
-if mode == 'Educational Sandbox':
-    render_page_header("📊 Educational Sandbox Trajectory", "Analyze and journal the equity curve of your dummy trades side-by-side with institutional benchmarks.")
-else:
-    render_page_header("📈 Live Portfolio Trajectory", "Analyze and journal the equity curve of your live trades side-by-side with institutional benchmarks.")
+# Dynamic Header
+render_page_header("📈 Portfolio Trajectory", "Analyze and journal the equity curve of your dummy or live trades side-by-side with institutional benchmarks.")
 
 equity_df = st.session_state.master_ledger.copy()
 
@@ -56,6 +52,7 @@ df['qqq_usd_cum'] = df['qqq_cum'] * initial_nav
 df['rsp_usd_cum'] = df['rsp_cum'] * initial_nav
 df['cum_return'] = df['cum_pnl'] / initial_nav
 
+mode = st.session_state.get('portfolio_mode', 'Educational Sandbox')
 if mode == "Educational Sandbox":
     privacy_mode = False
 else:
@@ -74,13 +71,13 @@ if not privacy_mode:
         fig_pnl.add_trace(go.Bar(x=df['date'], y=df['silo_c_pnl'], name='Silo C', marker_color='#4ade80'))
     
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_pnl'], name='Portfolio (Cum PnL USD)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
-    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_usd_cum'], name='SPY (Cum PnL USD)', mode='lines', line=dict(color='#3b82f6', width=3), yaxis='y2'))
+    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_usd_cum'], name='SPY (Cum PnL USD)', mode='lines', line=dict(color='fuchsia', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['qqq_usd_cum'], name='QQQ (Cum PnL USD)', mode='lines', line=dict(color='#dc2626', width=3), yaxis='y2'))
-    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_usd_cum'], name='RSP (Cum PnL USD)', mode='lines', line=dict(color='#16a34a', width=3), yaxis='y2'))
+    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_usd_cum'], name='RSP (Cum PnL USD)', mode='lines', line=dict(color='green', width=3), yaxis='y2'))
 else:
-    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_cum']*100, name='SPY (Cum Return %)', mode='lines', line=dict(color='#3b82f6', width=3), yaxis='y2'))
+    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['spy_cum']*100, name='SPY (Cum Return %)', mode='lines', line=dict(color='fuchsia', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['qqq_cum']*100, name='QQQ (Cum Return %)', mode='lines', line=dict(color='#dc2626', width=3), yaxis='y2'))
-    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_cum']*100, name='RSP (Cum Return %)', mode='lines', line=dict(color='#16a34a', width=3), yaxis='y2'))
+    fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['rsp_cum']*100, name='RSP (Cum Return %)', mode='lines', line=dict(color='green', width=3), yaxis='y2'))
     fig_pnl.add_trace(go.Scatter(x=df['date'], y=df['cum_return']*100, name='Portfolio (Cum Return %)', mode='lines', line=dict(color='black', width=6), yaxis='y2'))
 
 df['alpha_bg'] = df['alpha_gear'].map({5: '#14532d', 4: '#22c55e', 3: '#84cc16', 2: '#eab308', 1: '#f97316', 0: '#991b1b'})
@@ -109,9 +106,9 @@ if not privacy_mode:
     rsp_pct = df['rsp_cum'].iloc[-1] * 100
     
     fig_pnl.add_annotation(x=last_dt, y=est_val, text=f"{est_pct:.1f}%<br>${est_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='black', font=dict(color='white', size=11))
-    fig_pnl.add_annotation(x=last_dt, y=spy_val, text=f"{spy_pct:.1f}%<br>${spy_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#3b82f6', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=spy_val, text=f"{spy_pct:.1f}%<br>${spy_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='fuchsia', font=dict(color='white', size=11))
     fig_pnl.add_annotation(x=last_dt, y=qqq_val, text=f"{qqq_pct:.1f}%<br>${qqq_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#dc2626', font=dict(color='white', size=11))
-    fig_pnl.add_annotation(x=last_dt, y=rsp_val, text=f"{rsp_pct:.1f}%<br>${rsp_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='#16a34a', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=rsp_val, text=f"{rsp_pct:.1f}%<br>${rsp_val:,.0f}", showarrow=False, xanchor='left', yref='y2', bgcolor='green', font=dict(color='white', size=11))
 else:
     est_pct = df['cum_return'].iloc[-1] * 100
     spy_pct = df['spy_cum'].iloc[-1] * 100
@@ -119,17 +116,17 @@ else:
     rsp_pct = df['rsp_cum'].iloc[-1] * 100
 
     fig_pnl.add_annotation(x=last_dt, y=est_pct, text=f"{est_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='black', font=dict(color='white', size=11))
-    fig_pnl.add_annotation(x=last_dt, y=spy_pct, text=f"{spy_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='#3b82f6', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=spy_pct, text=f"{spy_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='fuchsia', font=dict(color='white', size=11))
     fig_pnl.add_annotation(x=last_dt, y=qqq_pct, text=f"{qqq_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='#dc2626', font=dict(color='white', size=11))
-    fig_pnl.add_annotation(x=last_dt, y=rsp_pct, text=f"{rsp_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='#16a34a', font=dict(color='white', size=11))
+    fig_pnl.add_annotation(x=last_dt, y=rsp_pct, text=f"{rsp_pct:.1f}%", showarrow=False, xanchor='left', yref='y2', bgcolor='green', font=dict(color='white', size=11))
 
 
 fig_pnl.update_layout(
     height=600,
     margin=dict(l=0, r=40, t=10, b=0),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    yaxis=dict(title='Daily PnL (USD)', side='left', showgrid=False, zeroline=True, zerolinecolor='lightgrey', domain=[0.1, 1]),
-    yaxis2=dict(title='Cumulative PnL (USD)' if not privacy_mode else 'Cumulative Return (%)', side='right', overlaying='y', showgrid=True, gridcolor='#f1f5f9', zeroline=False),
+    yaxis=dict(title='Daily PnL (USD)', side='left', showgrid=False, zeroline=True, zerolinecolor='black', zerolinewidth=1, domain=[0.1, 1]),
+    yaxis2=dict(title='Cumulative PnL (USD)' if not privacy_mode else 'Cumulative Return (%)', side='right', overlaying='y', showgrid=True, gridcolor='#f1f5f9', zeroline=True, zerolinecolor='black', zerolinewidth=1),
     yaxis3=dict(domain=[0, 0.08], showgrid=False, zeroline=False, showticklabels=False),
     barmode='relative',
     plot_bgcolor='white',

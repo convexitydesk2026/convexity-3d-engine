@@ -5,7 +5,7 @@ from public_core_math import render_global_sidebar, render_page_footer, render_p
 import numpy as np
 import datetime
 
-st.set_page_config(page_title="Pre-Flight Matrix | Convexity Desk", layout="wide")
+st.set_page_config(page_title="Options Governor Matrix | Convexity Desk", layout="wide")
 
 render_global_sidebar()
 
@@ -30,7 +30,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-render_page_header("🛩️ Options Governor & Pre-Flight Matrix", "This module polls live market data to mechanically enforce risk parameters across all options strategies.")
+render_page_header("🛩️ Options Governor Matrix", "This module polls live market data to mechanically enforce risk parameters across all options strategies.")
 
 @st.cache_data(ttl=900)  # Refresh every 15 minutes
 def fetch_live_market_data():
