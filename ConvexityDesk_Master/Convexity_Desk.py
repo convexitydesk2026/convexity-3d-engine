@@ -144,11 +144,4 @@ with col9:
 
 st.divider()
 
-
-# Add a sidebar link back to the main site
-with st.sidebar:
-    st.divider()
-    st.markdown("### 🌐 Main Site")
-    st.markdown('<a href="https://convexitydesk.com" target="_blank" style="text-decoration:none;"><button style="width:100%; padding:8px; border-radius:8px; background-color:#1e293b; color:white; border:1px solid #334155; cursor:pointer;">Return to convexitydesk.com</button></a>', unsafe_allow_html=True)
-
 render_page_footer("The Convexity Desk serves as your master control panel. From here, you can launch various quantitative risk management and journaling modules designed to evaluate portfolio attribution strictly from a mathematical, risk-adjusted framework.")

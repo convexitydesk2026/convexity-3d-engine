@@ -265,6 +265,10 @@ def render_global_sidebar():
                                 
                             st.success(alert_msg)
 
+        st.divider()
+        st.markdown("### 🌐 Main Site")
+        st.markdown('<a href="https://convexitydesk.com" target="_blank" style="text-decoration:none;"><button style="width:100%; padding:8px; border-radius:8px; background-color:#1e293b; color:white; border:1px solid #334155; cursor:pointer;">Return to convexitydesk.com</button></a>', unsafe_allow_html=True)
+
 def render_page_header(title: str, subtitle: str):
     """Renders a globally consistent, institutional dark-blue header banner."""
     st.markdown(
