@@ -563,14 +563,7 @@ def compute_daily_trajectory(df_input):
                 if ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
                     spot = float(hist_data[ticker].iloc[i])
 
-                # Fix Day-1 Anomaly: Anchor entry_price to the actual spot price on the first active trading day
-                if 'Real_Entry_Price' not in df_input.columns:
-                    df_input['Real_Entry_Price'] = np.nan
-
-                if d >= entry_dt and pd.isna(df_input.at[_, 'Real_Entry_Price']) and ticker in hist_data.columns and not pd.isna(hist_data[ticker].iloc[i]):
-                    df_input.at[_, 'Real_Entry_Price'] = spot
-
-                actual_entry = df_input.at[_, 'Real_Entry_Price'] if pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
+                actual_entry = entry_price
                 
                 is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
                 if is_option:
@@ -601,7 +594,7 @@ def compute_daily_trajectory(df_input):
             else:
                 # Trade is Closed: Calculate Realized PnL based on Exit Price
                 is_option = (row.get('Class') == 'Options' or row.get('Class') == 'Option')
-                actual_entry = df_input.at[_, 'Real_Entry_Price'] if 'Real_Entry_Price' in df_input.columns and pd.notna(df_input.at[_, 'Real_Entry_Price']) else entry_price
+                actual_entry = entry_price
                 
                 if pd.notna(row['Exit Price']) and row['Exit Price'] != '':
                     exit_price = float(row['Exit Price'])
