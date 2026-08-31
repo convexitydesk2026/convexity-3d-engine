@@ -293,7 +293,7 @@ with expander:
     
     format_dict = {
         'Global Portfolio %': '{:.2f}%', 'Shares': '{:,.0f}', 'Spot Price': '${:,.2f}', 
-        'Market Value': '${:,.0f}', 'Cost': '${:,.0f}', 
+        'Market Value': '${:,.0f}', 'Cost': '${:,.0f}', 'Avg SL': '${:,.2f}',
         '20 SMA': '${:,.2f}', '50 SMA': '${:,.2f}',
         'Open Risk': '${:,.0f}', 'Locked Profit': '${:,.0f}', 'Unlocked Profit': '${:,.0f}', 
         'Total Profit': '${:,.0f}', 'Live R-Mult': '{:+.2f}R', 'Days Active': '{:.0f}'
@@ -302,32 +302,24 @@ with expander:
     styled_df = display_df.style.format(format_dict).apply(style_alpha_row, axis=1)
     disabled_cols = [c for c in display_cols if c != 'Avg SL']
     
-    edited_metrics = st.data_editor(
-        styled_df, 
-        hide_index=True, 
-        use_container_width=True,
-        disabled=disabled_cols,
-        column_config={
-            "Avg SL": st.column_config.NumberColumn("Avg SL", format="$%.2f", step=0.01)
-        },
-        key="metrics_editor"
-    )
-
-    # Sync edits back to Master Ledger
-    changed = False
-    for idx in range(len(edited_metrics)):
-        new_sl = float(edited_metrics.iloc[idx]['Avg SL']) if pd.notna(edited_metrics.iloc[idx]['Avg SL']) else 0.0
-        orig_sl = float(display_df.iloc[idx]['Avg SL']) if pd.notna(display_df.iloc[idx]['Avg SL']) else 0.0
-        if abs(new_sl - orig_sl) > 0.001:
-            ticker = display_df.iloc[idx]['Ticker']
-            mask = (st.session_state.master_ledger['Ticker'] == ticker) & \
-                   (st.session_state.master_ledger['Class'] == 'Equity') & \
-                   (st.session_state.master_ledger['Exit Price'].isna() | (st.session_state.master_ledger['Exit Price'] == ''))
-            st.session_state.master_ledger.loc[mask, 'Stop Loss'] = new_sl
-            changed = True
-            
-    if changed:
-        st.rerun()
+    st.dataframe(styled_df, hide_index=True, use_container_width=True)
+    
+    st.markdown("---")
+    with st.expander("📖 **Understanding the Dual-Ledger Architecture (Sandbox vs. Live)**", expanded=False):
+        st.markdown("""
+        **1. Why are there two separate tables?**
+        - **The Master Options & Equity Grid (Top):** This is your raw, global database. It logs every historical and active transaction across all asset classes (Equities, Options) and is the **single source of truth** where you edit your `Stop Loss`, `Entry Price`, or add new dummy trades.
+        - **The Physical Equity Risk Metrics (Bottom):** This is a specialized, live-calculated dashboard. It actively isolates only your *open* physical equity positions, reaches out to live market data feeds to pull the current Spot Price, and automatically derives your exact open risk, locked profit, and technical SMAs.
+        
+        **2. Why is editing blocked in the bottom table?**
+        To prevent sync conflicts, all edits (like tweaking your Stop Loss) must be done in the top **Master Grid**. Those changes will immediately cascade down and recalculate all risk metrics in the bottom table and the sidebar.
+        
+        **3. How does this behave in the Educational Sandbox?**
+        The Sandbox allows you to freely add, delete, and modify dummy rows in the Master Grid to stress-test scenarios. However, **these edits are volatile.** If you perform a hard refresh of your browser, the engine will wipe your edits and reload the default `dummy_portfolio.csv` template.
+        
+        **4. How does this behave in the Live Portfolio?**
+        When connected to your Live Portfolio, the Master Grid strictly mirrors your actual broker data. Any edits made here are for temporary 'what-if' modeling and will not alter your broker's actual database.
+        """)
 
 
 
