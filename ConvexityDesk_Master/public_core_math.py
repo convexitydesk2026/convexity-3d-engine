@@ -291,33 +291,6 @@ def init_global_state():
                 for col in ['Entry Date', 'Exit Date', 'Expiry']:
                     df[col] = pd.to_datetime(df[col], errors='coerce')
                     
-                opt_path = Path(__file__).parent / "dummy_options.csv"
-                if opt_path.exists():
-                    opt_df = pd.read_csv(opt_path)
-                    
-                    mapped_opts = pd.DataFrame()
-                    mapped_opts['Silo'] = opt_df['Tranche ID'].str.split(' -').str[0].str.split(':').str[0].str.replace('VRP_', '').str.split('_').str[0].str.replace('Silo', 'Silo ')
-                    # Clean up silos to just A, B, C, D
-                    mapped_opts['Silo'] = mapped_opts['Silo'].apply(lambda x: x[-1] if isinstance(x, str) and x[-1] in ['A', 'B', 'C', 'D'] else 'A')
-                    
-                    mapped_opts['Class'] = 'Options'
-                    mapped_opts['Strategy'] = opt_df['Tranche ID']
-                    mapped_opts['Ticker'] = opt_df['Ticker']
-                    mapped_opts['Entry Date'] = pd.to_datetime(opt_df['Open Date'], errors='coerce')
-                    mapped_opts['Exit Date'] = pd.to_datetime(opt_df['Close Date'], errors='coerce')
-                    mapped_opts['Shares'] = opt_df['Quantity']
-                    mapped_opts['Entry Price'] = opt_df['Premium Collected (USD)']
-                    mapped_opts['Exit Price'] = pd.to_numeric(opt_df['Closing Price (USD)'], errors='coerce')
-                    mapped_opts['Short Put'] = opt_df['Short Strike']
-                    mapped_opts['Long Put'] = opt_df['Long Strike']
-                    mapped_opts['Short Call'] = 0.0
-                    mapped_opts['Long Call'] = 0.0
-                    
-                    # only keep rows with valid exit prices for the chart
-                    mapped_opts = mapped_opts.dropna(subset=['Exit Price'])
-                    
-                    df = pd.concat([df, mapped_opts], ignore_index=True)
-
                 st.session_state.master_ledger = df
             except Exception as e:
                 st.error(f"Error loading dummy_portfolio.csv or dummy_options.csv: {e}")
