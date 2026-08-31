@@ -559,9 +559,9 @@ def compute_daily_trajectory(df_input):
                         else:
                             final_pnl = shares * (abs(entry_price) - exit_price_val) * 100
                         
-                        spy_pct = (spot - actual_entry) / actual_entry if actual_entry > 0 else 0
-                        pnl = final_pnl * progress + (abs(final_pnl) * spy_pct * 0.5)
-                        if current_day == total_days: pnl = final_pnl
+                        # For options, we use a simple linear interpolation of the final PnL over the holding period
+                        # comparing spot price to option premium is mathematically invalid
+                        pnl = final_pnl * progress
                 else:
                     pnl = shares * (spot - actual_entry)
             else:
