@@ -104,9 +104,10 @@ def render_global_sidebar():
             
         st.markdown(f"""
             <style>
-                .stApp, .stApp > header {{
-                    background-color: {bg_color} !important;
-                }}
+                [data-testid="stAppViewContainer"], 
+                [data-testid="stHeader"], 
+                .stApp, 
+                .stApp > header, 
                 [data-testid="stSidebar"] {{
                     background-color: {bg_color} !important;
                 }}
